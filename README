@@ -1,0 +1,5 @@
+Python API bindings for the Canvas LMS.
+
+canvaslms.py contains the API code.
+canvas.py is a sample main program.
+bootcamp.py is the main program with course-specific functionality for 11-601.

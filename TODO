@@ -1,0 +1,7 @@
+Make canvaslms.py into an installable package.
+
+General code cleanup and improved comments.
+
+Better documentation.
+
+Bindings for additional Canvas API calls?
