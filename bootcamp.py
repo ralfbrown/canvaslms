@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 13feb2018
+##  last edit: 09jun2018
 
 import csv
 import math
@@ -14,11 +14,13 @@ from urllib.error import HTTPError
 from statistics import mean  # requires Python 3.4+
 
 from canvaslms import Course, Grade, CanvasCSV
+from canvascmu import Institution
 
 ######################################################################
 
 ## configuration
-COURSE_NAME = "Coding & Algorithms Bootcamp"
+#COURSE_NAME = "Coding & Algorithms Bootcamp"	#from Fall 2017
+COURSE_NAME = "Coding Boot Camp"
 HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 10839 # uid of the Test Student for the course
@@ -29,8 +31,13 @@ COURSE_STAFF = ['Ralf Brown']
 SPLIT_STDDEV = True
 
 ## configuration of late penalty: percent per day and maximum days late accepted
-LATE_PERCENT = 10
+LATE_PERCENTAGE = 10
 LATE_DAYS = 7
+
+## configuration of points for the shuffle
+SHUFFLE_ASSESSMENT_POINTS = 60
+SHUFFLE_FEEDBACK_POINTS = 40
+SHUFFLE_SUBMISSION_POINTS = 50
 
 ######################################################################
 
@@ -116,6 +123,13 @@ def extract_andrew_from_filename(filename,what='feedback'):
     
 ######################################################################
 
+def normalize_q_value(val):
+    if val is None or val == '' or val[0] == 'n':
+        return 'na'
+    return val
+
+######################################################################
+
 def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
     # read header line
     row = csv.next_row()
@@ -155,9 +169,9 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
             q2 += ['?']
             q3 += ['?']
         else:
-            q1 += [row[0]]
-            q2 += [row[1]]
-            q3 += [row[2]]
+            q1 += [normalize_q_value(row[0])]
+            q2 += [normalize_q_value(row[1])]
+            q3 += [normalize_q_value(row[2])]
     # skip empty line
     csv.next_row()
     # skip header line
@@ -202,9 +216,9 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
         return
     # reformat the information into a comment for the gradebook
     comment = 'Q1: {}/{}/{}/{}/{}/{}/{}'.format(q1[0],q1[1],q1[2],q1[3],q1[4],q1[5],q1[6])
-    if ''.join(q2) != '':
+    if ''.join(q2) != '' and ''.join(q2) != 'nanananananana':
         comment += '\nQ2: {}/{}/{}/{}/{}/{}/{}'.format(q2[0],q2[1],q2[2],q2[3],q2[4],q2[5],q2[6])
-    if ''.join(q3) != '':
+    if ''.join(q3) != '' and ''.join(q2) != 'nanananananana':
         comment += '\nQ3: {}/{}/{}/{}/{}/{}/{}'.format(q3[0],q3[1],q3[2],q3[3],q3[4],q3[5],q3[6])
     comment += '\nOverall: {}/{}/{}/{}/{}'.format(overall[0],overall[1],overall[2],overall[3],overall[4])
     comment += '\nFeedback: {}'.format(feedback)
@@ -284,7 +298,7 @@ def parse_shuffle_feedback(course, csv, filename, grades, verbose = False):
         print('+',filename,"contains an Andrew ID we've already seen:",andrew)
         return
     ## OK, we've got a good feedback form, so massage the data
-    ## we're changing the score in Canvas to be 0-12 to be compatible with an upcoming switch to rubric scoring,
+    ## we're changing the score in Canvas to be 0-40 to be compatible with an upcoming switch to rubric scoring,
     ##   so just add up the subscores
     overall_score = sum(crit)
     feedback = 'Subscores: {}/{}/{}/{}, Feedback: {}'.format(crit[0],crit[1],crit[2],crit[3],comment)
@@ -378,8 +392,8 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
         if total_points == 0:
             print('!  {} ({}) received a zero score'.format(course.student_login(uid),uid))
         if possible > 0:
-            grade = 12.0 * (total_points / possible)
-            rubric_grades[uid] = 12.0 * (total_points / possible)
+            grade = SHUFFLE_ASSESSMENT_POINTS * (total_points / possible)
+            rubric_grades[uid] = SHUFFLE_ASSESSMENT_POINTS * (total_points / possible)
         else:
             grade = None
             print('empty rubric for {} ({})'.format(course.student_login(uid),uid))
@@ -426,7 +440,7 @@ def process_shuffle_csv(course, flags):
         login = course.student_login(uid)
         attachments = sub['attachments']
         spreadsheet_url = None
-        upload_filename = None
+        photo_url = None
         filename = None
         suffix = None
         for attach in attachments:
@@ -437,6 +451,8 @@ def process_shuffle_csv(course, flags):
                 spreadsheet_url = attach['url']
                 filename = attach['filename']
                 (base, period, suffix) = filename.rpartition('.')
+            if 'image' in mimetype:
+                photo_url = attach['url']
         if spreadsheet_url:
             destfile = '{}/{}_{}.{}'.format(flags.dir,login,what,suffix)
             print('Downloading',what,'by',login)
@@ -451,7 +467,13 @@ def process_shuffle_csv(course, flags):
             uid = course.get_id_for_student(login)
             if uid is not None and uid > 0:
                 gr = Grade()
-                gr.add(10,'',0,course.late_penalty_by_days(late_days))
+                points = SHUFFLE_SUBMISSION_POINTS
+                ## dock student for missing photo upload
+                if photo_url is None and what == 'assessment':
+                    gr.add(0,'-10 points for not uploading a photo',1)
+                    points -= 10
+                    print('-',login,'did not upload interview photo')
+                gr.add(points,'',0,course.late_penalty_by_days(late_days))
                 submit_grades[uid] = gr
         else:
             print('-',login,'did not upload',what,'spreadsheet')
@@ -679,8 +701,11 @@ def reassign(flags, remargs):
 ######################################################################
 
 def main():
-    args, remargs = Course.parse_arguments(HOST, COURSE_NAME, add_bootcamp_flags)
+    args, remargs = Course.parse_arguments(HOST, COURSE_NAME,
+                                           [Institution.add_institution_flags, add_bootcamp_flags])
     if Course.process_generic_commands(args, remargs):
+        return
+    if Institution.process_generic_commands(args, remargs):
         return
     if args.listrubrics is True:
         if args.uid and args.uid != TEST_STUDENT:
@@ -689,8 +714,8 @@ def main():
             Course.display_rubric_ids(args.host, args.course, args.verbose)
         return
     if args.makecurve is True:
-        standard = [('A+',2.4,99),('A',1.8,97.5),('A-',1.0,95),
-                    ('B+',0.4,91),('B',-0.2,87),('B-',-1.0,83),
+        standard = [('A+',2.4,98),('A',1.8,96),('A-',1.0,93),
+                    ('B+',0.4,90),('B',-0.2,86),('B-',-1.0,83),
                     ('C+',-1.6,77),('C',-2.2,74),('C-',-3.0,70),
                     ('D+',-3.6,67),('D',-4.2,64),('D-',-4.8,60)]
         course = Course(args.host, args.course, verbose = args.verbose)
@@ -714,9 +739,9 @@ def main():
         
     if args.points is None:
         if args.shuffle:
-            args.points = 12
+            args.points = SHUFFLE_ASSESSMENT_POINTS
         elif args.feedback:
-            args.points = 12
+            args.points = SHUFFLE_FEEDBACK_POINTS
         else:
             args.points = 100
     if args.shuffle or args.feedback:
