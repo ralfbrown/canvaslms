@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 13feb2018
+##  last edit: 21may2018
 
 import argparse
 import csv
@@ -44,7 +44,7 @@ class Grade():
             self.comments += [None]
         if penalty > 0:
             points = float(points) * (100 - penalty) / 100.0
-            if comment is None:
+            if comment is None or comment == '':
                 comment = '({}% late penalty)'.format(penalty)
             else:
                 comment += ' (less {}% late penalty = {})'.format(penalty,points)
@@ -239,16 +239,26 @@ class Course():
         return self.late_penalty_by_days(late)
 
     ## staffeli/canvas.py showed how to call API
-    def mkrequest(self, method, url, arglist):
+    def mkrequest(self, method, url, arglist, use_JSON_data):
         # convert a relative URL into an absolute URL by appending it to the base URL for the API
         if '://' not in url:
             url = self.api_base + url
         if arglist is None:
             arglist = []
-        # add page-size to request
-        arglist = arglist + [('per_page',MAX_PER_PAGE)]  ## be sure to leave original list intact
-        qstring = urllib.parse.urlencode(arglist, safe='[]@', doseq=True).encode('utf-8')
         headers = { 'Authorization': 'Bearer ' + self.token }
+        if use_JSON_data:
+            if type(arglist) is type(''):
+                qstring = ''.join(c if c != '\n' else ' ' for c in arglist)
+            else:
+                qstring = json.dumps(arglist)
+            qstring = qstring.encode('utf-8')
+            headers['Content-Type'] = 'application/json'
+        else:
+            # add page-size to request
+            arglist = arglist + [('per_page',MAX_PER_PAGE)]  ## be sure to leave original list intact
+            qstring = urllib.parse.urlencode(arglist, safe='[]@', doseq=True).encode('utf-8')
+        #if self.verbose and (len(arglist) > 1 or use_JSON_data):
+        #    print("Encoded args:",qstring)
         return urllib.request.Request(url, data=qstring, method=method, headers=headers)
 
     ## staffeli/canvas.py showed how to call API
@@ -264,13 +274,15 @@ class Course():
         return None
         
     ## staffeli/canvas.py showed how to call API
-    def call_api(self, method, url, arglist, all_pages=False):
+    def call_api(self, method, url, arglist, all_pages=False, use_JSON_data=False):
         if arglist is None:
             arglist = []
         entries = []
         while url:
-            request = self.mkrequest(method, url, arglist)
+            request = self.mkrequest(method, url, arglist, use_JSON_data)
             with urllib.request.urlopen(request) as f:
+                if f.getcode() == 204:  # No Content
+                    break
                 data = json.loads(f.read().decode('utf-8'))
                 if type(data) is list:
                     entries.extend(data)
@@ -292,21 +304,21 @@ class Course():
             result = []
         return result
 
-    def put(self,url,arglist=[]):
+    def put(self,url,arglist=[], use_JSON_data=False):
         if self.dryrun:
             print('DRY RUN: would have PUT',url,'with args:\n',arglist)
             return []
         try:
-            return self.call_api('PUT', url, arglist)
+            return self.call_api('PUT', url, arglist, use_JSON_data=use_JSON_data)
         except HTTPError as err:
             print(err,'for PUT',url)
 
-    def post(self,url,arglist=[]):
+    def post(self,url,arglist=[], use_JSON_data=False):
         if self.dryrun:
             print('DRY RUN: would have POSTed',url,'with args:\n',arglist)
             return []
         try:
-            return self.call_api('POST', url, arglist)
+            return self.call_api('POST', url, arglist, use_JSON_data=use_JSON_data)
         except HTTPError as err:
             print(err,'for POST',url)
 
@@ -503,6 +515,33 @@ class Course():
         self.assignment_id = self.find_assignment_id(name)
         return
         
+    def find_quiz_id(self, name):
+        if self.verbose:
+            print("Finding quiz ID by name:",name)
+        quiz_id = None
+        matches = self.fetch_quizzes(name)
+        if matches is None or len(matches) == 0:
+            if name is None:
+                print("No quizzes for course")
+            else:
+                print(name,'does not match any quizzes')
+        if len(matches) == 1:
+            _, quiz_id = list(matches.items())[0]
+        elif name in matches:
+            quiz_id = matches[name]
+            print("Found exact match for '",name,"', but there are additional partial matches",sep='')
+        elif name is not None and len(matches) > 1:
+            print(name,'is ambiguous, and matches:')
+            for name in matches:
+                print('  ',name)
+        if self.verbose:
+            print("Quiz ID:",quiz_id)
+        return quiz_id
+        
+    def find_quiz(self, name):
+        self.quiz_id = self.find_quiz_id(name)
+        return
+        
     def fetch_active_students(self):
         student_ids = {}
         enrollments = self.fetch_roster()
@@ -567,9 +606,6 @@ class Course():
             user_id = 'self'
         return self.get('users/{}/dashboard_positions'.format(user_id))
 
-
-
-
     def fetch_drops(self):
         if self.cached_drops is None:
             if self.verbose:
@@ -613,6 +649,27 @@ class Course():
         if include_avatar:
             arglist += [('include','avatar_url')]
         return self.get('users/{}/observees'.format(uid),arglist,True)
+
+    def fetch_quizzes(self, name = None):
+        if self.verbose:
+            print("Fetching list of quizzes")
+        arglist = []
+        if name is not None:
+            arglist += [('search_term',name)]
+        quizzes = self.get('courses/{}/quizzes'.format(self.id),arglist,True)
+        quiz_ids = {}
+        for q in quizzes:
+            name = q['title']
+            qid = q['id']
+            quiz_ids[name] = qid
+        return quiz_ids
+
+    def fetch_quiz_submissions(self):
+        if self.verbose:
+            print("Fetching list of quiz submissions")
+        arglist = [('include[]','submission')]
+        submissions = self.get('/courses/{}/quizzes/{}/submissions'.format(self.id,self.quiz.id),arglist)
+        return submissions
 
     def fetch_reviews(self, assign_id = None, terse = False):
         if assign_id is None:
@@ -1178,15 +1235,40 @@ class Course():
         return True
 
     @staticmethod
+    def display_delete(args, endpoint, arglist=[]):
+        if len(arglist) % 2 != 0:
+            print('must have matched parameter/value pairs')
+            return True
+        course = Course(args.host, args.course)
+        course.simulate(args.dryrun)
+        params = list(zip(arglist[0::2],arglist[1::2]))
+        results = course.delete(endpoint,params)
+        print(results)
+        return True
+
+    @staticmethod
     def display_post(args, endpoint, arglist=[]):
         if len(arglist) % 2 != 0:
             print('must have matched parameter/value pairs')
-            return
+            return True
         course = Course(args.host, args.course)
+        course.simulate(args.dryrun)
         params = list(zip(arglist[0::2],arglist[1::2]))
         results = course.post(endpoint,params)
         print(results)
-        return
+        return True
+
+    @staticmethod
+    def display_put(args, endpoint, arglist=[]):
+        if len(arglist) % 2 != 0:
+            print('must have matched parameter/value pairs')
+            return True
+        course = Course(args.host, args.course)
+        course.simulate(args.dryrun)
+        params = list(zip(arglist[0::2],arglist[1::2]))
+        results = course.put(endpoint,params)
+        print(results)
+        return True
 
     @staticmethod
     def display_reviews(args, assignment):
@@ -1219,7 +1301,7 @@ class Course():
             email = student['login_id']
             name = student['name']
             print(email + ',' + name)
-        if verbose:
+        if args.verbose:
             print('********* DROPPED ***********')
             drops = course.fetch_drops()
             print('Email,Name')
@@ -1323,8 +1405,9 @@ class Course():
             Course.display_reviews(args, args.assignment)
             return True
         if args.post is True:
-            Course.display_post(args, remargs[0], remargs[1:])
-            return True
+            return Course.display_post(args, remargs[0], remargs[1:])
+        if args.put is True:
+            return Course.display_put(args, remargs[0], remargs[1:])
         if args.roster is True:
             return Course.display_roster(args)
         if args.showrubric is True:
@@ -1341,10 +1424,11 @@ class Course():
             course = Course(args.host, args.course)
             course.simulate(args.dryrun)
             course.find_assignment(args.assignment)
-            if course.assignment_id is None:
-                return False
-            course.zero_missing_assignment()
+            if course.assignment_id is not None:
+                course.zero_missing_assignment()
             return True
+        if args.delete is True:
+            return Course.display_delete(args, remargs[0], remargs[1:])
         return False
 
     def parse_arguments(host, course_name, flag_adder = None):
@@ -1374,11 +1458,17 @@ class Course():
         parser.add_argument("--whoami",action="store_true",help="show the name under which I am authenticated")
         parser.add_argument("--zeromissing",action="store_true",help="assign zero scores for missing assignments to all ungraded students")
         if flag_adder:
-            flag_adder(parser)
+            if type(flag_adder) is type([]):
+                for adder in flag_adder:
+                    adder(parser)
+            else:
+                flag_adder(parser)
         parser.add_argument("--host",metavar="HOST",default=host,help="set host name of Canvas server")
         parser.add_argument("--course",metavar="NAME",default=course_name,help="name of the course")
         parser.add_argument("--get",action="store_true",help="perform a raw API 'get' call")
+        parser.add_argument("--put",action="store_true",help="perform a raw API 'put' call (USE CAUTION!)")
         parser.add_argument("--post",action="store_true",help="perform a raw API 'post' call (USE CAUTION!)")
+        parser.add_argument("--delete",action="store_true",help="perform a raw API 'delete' call (USE CAUTION!)")
         if len(sys.argv) <= 1:
             parser.print_usage()
             parser.exit()
