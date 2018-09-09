@@ -25,7 +25,7 @@ HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 10839 # uid of the Test Student for the course
 ## People whose comments should be ignored when processing peer reviews.  Use the display_name for each.
-COURSE_STAFF = ['Ralf Brown']
+COURSE_STAFF = ['Ralf Brown', 'Yuchen Cao', 'Yunhan Gao', 'Liang Zhang', 'Kuo Zhao']
 
 ## for very skewed grades, we may want to compute standard deviation separately for grades above and below the mean
 SPLIT_STDDEV = True
@@ -143,7 +143,7 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
     andrew = email_to_AndrewID(row[1])
     ##FIXME: massage AndrewID
     try:
-        totalscore = float(row[14])
+        totalscore = float(row[17])
     except:
         print('Bad totalscore in',filename)
         totalscore = -1
@@ -330,6 +330,9 @@ def process_grades(course, flags, csv_files):
         numparts = 1
     course.batch_upload_grades(grades,numparts)
     if flags.inclass:
+        if flags.dryrun:
+            print("**** IMPORTANT NOTE: the below list indicates who would be marked missing ****")
+            print("****   based on what scores were in the gradebook prior to this command!  ****")
         course.zero_missing_assignment()
     return
 
