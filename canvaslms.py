@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 21may2018
+##  last edit: 09sep2018
 
 import argparse
 import csv
@@ -26,6 +26,10 @@ API_BASE = "/api/v1/"
 MAX_PER_PAGE = 100
 
 ######################################################################
+
+class CanvasException(Exception):
+    def __init__(self, msg):
+        super(CanvasException,self).__init__(msg)
 
 class Grade():
     def __init__(self, points = None, comment = None):
@@ -214,14 +218,14 @@ class Course():
         self.max_late = max_days_late
         return
 
-    def set_due_day(self, day_of_year):
-        if day_of_year is None:
-            day_of_year = 999	# not specified, assignment will never be considered late
-        self.due_day = day_of_year
+    def set_due_day(self, day_in_year):
+        if day_in_year is None:
+            day_in_year = 999	# not specified, assignment will never be considered late
+        self.due_day = day_in_year
         return
 
     def days_late(self,submit_date):
-        submit_date = day_of_year(Course.normalize_date(submit_date))
+        submit_date = self.day_of_year(Course.normalize_date(submit_date))
         late = submit_date - self.due_day
         if late < 0:
             return 0
@@ -269,7 +273,9 @@ class Course():
             links = link_header.split(',')
             # each link is a URL followed by ' ;rel="XX"', where XX=current/next/first/last
             urls = {rel[:-1]: link[1:-1] for link, rel in (s.split('; rel="') for s in links) }
-            if urls['current'] != urls['last']:
+            if 'last' in urls and urls['current'] != urls['last']:
+                return urls['next']
+            elif 'next' in urls:
                 return urls['next']
         return None
         
@@ -370,8 +376,8 @@ class Course():
         retrieve the student login from the given user ID
         '''
         email = self.student_email(uid)
-        if MAIL in email:
-            login, m, rest = email.rpartition(MAIL)
+        if self.mail in email:
+            login, m, rest = email.rpartition(self.mail)
             return login
         return email
 
@@ -384,7 +390,7 @@ class Course():
         if type(login) is str:
             login = login.lower()
         if '@' not in login:
-            login = login + MAIL
+            login = login + self.mail
         ids = self.fetch_active_students()
         if login in ids:
             return ids[login]
@@ -471,14 +477,14 @@ class Course():
         scheme = []
         i = 0
         for (letter, devs, std) in standard:
-            threshold = self.compute_threshold(mean,upper_stddev,lower_stddev,devs)
+            threshold = Course.compute_threshold(mean,upper_stddev,lower_stddev,devs)
             if threshold > std:
                 threshold = std
             print('{:2s} = {:.3f}'.format(letter,threshold))
             scheme += [('grading_scheme_entry[][name]',letter),('grading_scheme_entry[][value]',threshold)]
         scheme += [('grading_scheme_entry[][name]','F'),('grading_scheme_entry[][value]',0.0)]
         if pass_devs is not None:
-            print('Pass: {:.3f}'.format(self.compute_threshold(mean,upper_stddev,lower_stddev,pass_devs)))
+            print('Pass: {:.3f}'.format(Course.compute_threshold(mean,upper_stddev,lower_stddev,pass_devs)))
         return scheme
 
     def current_grading_standard(self):
@@ -816,7 +822,7 @@ class Course():
         resp = self.put('courses/{}/assignments/{}/submissions/{}'.format(self.id, self.assignment_id, user_id),
                         arglist)
         if 'grade' not in resp:
-            raise Exception("Expected a response showing the new grade, got:\n{}".format(resp))
+            raise CanvasException("Expected a response showing the new grade, got:\n{}".format(resp))
         self.clear_submissions_cache()
         return
 
@@ -877,7 +883,7 @@ class Course():
             print(err,'for',url)
             resp = [{'url': None, 'workflow_state':'skipped'}]
         if type(resp) is not list or 'url' not in resp[0]:
-            raise Exception("Canvas response looks weird: {}".format(resp))
+            raise CanvasException("Canvas response looks weird: {}".format(resp))
         resp = resp[0]
         url = resp['url']
         print('Waiting for grade upload to be processed',end='',flush=True)
@@ -976,7 +982,6 @@ class Course():
         for review in reviews:
             if review['user'] and review['user']['id'] == uid and review['assessor'] \
                    and review['workflow_state'] == 'assigned':
-                #print(review) ##DEBUG
                 reviewers.append(review['assessor']['id'])
         if self.verbose:
             print('peer reviewers for',uid,'are',reviewers)
@@ -1080,11 +1085,18 @@ class Course():
         parse_func(submissions,rubric_def,rubric_grades,submit_grades,assessors,submit_points,self,self.verbose)
         print('')
         print('Uploading rubric grades')
-        self.batch_upload_grades(rubric_grades,1)
+        try:
+            self.batch_upload_grades(rubric_grades,1)
+        except CanvasException as err:
+            print(err)
+            return
         if submit_assign_id:
             print('')
             print('Uploading grades for submitting peer review')
-            self.batch_upload_grades(submit_grades,1,submit_assign_id)
+            try:
+                self.batch_upload_grades(submit_grades,1,submit_assign_id)
+            except CanvasException as err:
+                print(err)
         return
 
     def make_curve(self, standard, split_stddev = True, verbose = False, dryrun = True, pass_devs = -2.0):
@@ -1127,7 +1139,10 @@ class Course():
         missed = {}
         for uid in ungraded:
             missed[uid] = Grade(0,comment)
-        self.batch_upload_grades(missed)
+        try:
+            self.batch_upload_grades(missed)
+        except CanvasException as err:
+            print(err)
         return
 
     @staticmethod
@@ -1295,21 +1310,33 @@ class Course():
     def display_roster(args):
         course = Course(args.host, args.course, verbose=args.verbose)
         enrollments = course.fetch_roster()
-        print('Email,Name')
+        if args.liststudents:
+            header = 'UserID,Name,Email'
+        else:
+            header = 'Email,Name'
+        print(header)
         for enrollment in enrollments:
             student = enrollment['user']
+            uid = str(student['id'])
             email = student['login_id']
             name = student['name']
-            print(email + ',' + name)
+            if args.liststudents:
+                print(','.join([uid,name,email]))
+            else:
+                print(email + ',' + name)
         if args.verbose:
             print('********* DROPPED ***********')
             drops = course.fetch_drops()
-            print('Email,Name')
+            print(header)
             for enrollment in drops:
                 student = enrollment['user']
+                uid = str(student['id'])
                 email = student['login_id']
                 name = student['name']
-                print(email + ',' + name)
+                if args.liststudents:
+                    print(','.join([uid,name,email]))
+                else:
+                    print(email + ',' + name)
         return True
 
     @staticmethod
@@ -1408,7 +1435,7 @@ class Course():
             return Course.display_post(args, remargs[0], remargs[1:])
         if args.put is True:
             return Course.display_put(args, remargs[0], remargs[1:])
-        if args.roster is True:
+        if args.roster is True or args.liststudents is True:
             return Course.display_roster(args)
         if args.showrubric is True:
             return Course.display_rubric_def(args, args.assignment)
@@ -1451,6 +1478,7 @@ class Course():
         parser.add_argument("--listgrades",action="store_true",help="show student grades for the specified assignment (NYI)")
         parser.add_argument("--listrubrics",action="store_true",help="display list of IDs for active rubrics")
         parser.add_argument("--listreviews",action="store_true",help="display list of peer reviews for the assignment")
+        parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
         parser.add_argument("--ungraded",action="store_true",help="display list of studentIDs for which there is no grade in the assignment")
@@ -1474,8 +1502,8 @@ class Course():
             parser.exit()
         args, remargs = parser.parse_known_args()
         if args.due is not None:
-            args.due = normalize_date(args.due)
-            args.due_day = day_of_year(args.due)
+            args.due = Course.normalize_date(args.due)
+            args.due_day = Course.day_of_year(args.due)
         else:
             args.due_day = 999
         return args, remargs
@@ -1576,12 +1604,12 @@ class CanvasCSV():
         all of the files.  Returns a list of filenames of the resulting .csv files
         '''
         noncsv = [fn for fn in filelist if fn[-4:] != '.csv']
-        csv = convert_to_csv(noncsv,tmpdir)
+        csv = CanvasCSV.convert_to_csv(noncsv,tmpdir)
         csv += [fn for fn in filelist if fn[-4:] == '.csv']
         # iterate over all the CSV files in the directory (both those that were originally there
         #   and those we created as conversions from other formats) and apply some sanitization
         for filename in csv:
-            sanitize_csv(filename)
+            CanvasCSV.sanitize_csv(filename)
         return csv
 
 ######################################################################
