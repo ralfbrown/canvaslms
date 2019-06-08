@@ -564,26 +564,36 @@ if have_HR:
             students = course.fetch_active_students()
         success = 0
         failure = 0
+        comments = {}
         for st in students:
             if type(students) == dict:
                 name = course.student_name(students[st])
             else:
                 name = None
             email = st if '@' in st else st + MAIL
-            response = None
             response = hr.invite_test_candidate(test_id,name,email,msg)
+            if args.dryrun and not response:
+                response = {'id': 1, 'test_link': 'foo://bar'}
             if response and 'test_link' in response:
                 if args.verbose:
                     print('{}: {}'.format(email,response['id']))
                 success += 1
                 if type(students) == dict:
+                    uid = students[st]
+                else:
+                    uid = course.get_id_for_student(email)
+                if uid and type(uid) == int and uid > 0:
                     ## upload a comment with the test link
-                    ##FIXME
-                    pass
+                    link_info = 'The link for this assignment is\n{}\n(see the email for full instructions)' \
+                                .format(response['test_link'])
+                    comments[uid] = (0,link_info)
             else:
                 print('{}: failed'.format(email))
                 failure += 1
         print('{} invitations sent, {} errors'.format(success,failure))
+        if len(comments) > 0:
+            print('Uploading test links to Canvas')
+            course.batch_upload_grades(comments,0)
         return True
 else:
     def HR_invite(course,args):
