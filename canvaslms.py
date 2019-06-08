@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 09sep2018
+##  last edit: 28oct2018
 
 import argparse
 import csv
@@ -61,7 +61,7 @@ class Grade():
             self.comments += [None]
         for i in range(numparts):
             if self.comments[i] is None:
-                self.comments[i] = 'Part {}: missing'.format(i+1)
+                self.comments[i] = 'Part {}: not yet submitted'.format(i+1)
         if len(self.comments) > 0:
             if numparts > 1:
                 poss = Grade.drop_decimals(possible)
@@ -161,6 +161,8 @@ class Course():
         self.due_day = 999              # 999 = not specified, assignment will never be considered late
         self.late_percent = 0		# percent per day late
         self.max_late = 100		# maximum days late allowed
+        self.target_mean = 85		# target mean score for curving
+        self.target_stddev = 5		# standard deviation of curved scores in percentage points
         self.hostname = host
         self.api_base = 'https://'+ self.hostname + API_BASE
         self.user_base = 'https://' + self.hostname
@@ -442,16 +444,16 @@ class Course():
         return upper_stdev, lower_stdev
     
         
-    @staticmethod
-    def compute_threshold(mean, upper_stddev, lower_stddev, devs):
+    def compute_threshold(self, mean, upper_stddev, lower_stddev, devs):
         if devs < 0:
             if mean + devs * lower_stddev < 5:
                 thresh = (mean - 5) / lower_stddev
                 return 5 * (1 + (thresh + devs) / thresh)
             stddev = lower_stddev
         else:
-            if mean + 3 * upper_stddev > 100:
-                upper_stddev = (100 - mean) / 3
+            up_devs = (100 - self.target_mean) / self.target_stddev
+            if mean + up_devs * upper_stddev > 100:
+                upper_stddev = (100 - mean) / up_devs
             stddev = upper_stddev
         return mean + ( devs * stddev )
 
@@ -477,14 +479,14 @@ class Course():
         scheme = []
         i = 0
         for (letter, devs, std) in standard:
-            threshold = Course.compute_threshold(mean,upper_stddev,lower_stddev,devs)
+            threshold = self.compute_threshold(mean,upper_stddev,lower_stddev,devs)
             if threshold > std:
                 threshold = std
             print('{:2s} = {:.3f}'.format(letter,threshold))
             scheme += [('grading_scheme_entry[][name]',letter),('grading_scheme_entry[][value]',threshold)]
         scheme += [('grading_scheme_entry[][name]','F'),('grading_scheme_entry[][value]',0.0)]
         if pass_devs is not None:
-            print('Pass: {:.3f}'.format(Course.compute_threshold(mean,upper_stddev,lower_stddev,pass_devs)))
+            print('Pass: {:.3f}'.format(self.compute_threshold(mean,upper_stddev,lower_stddev,pass_devs)))
         return scheme
 
     def current_grading_standard(self):
@@ -497,6 +499,8 @@ class Course():
     def find_assignment_id(self, name):
         if self.verbose:
             print("Finding assignment ID by name:",name)
+        if (name == "None"):
+            return None
         assign_id = None
         matches = self.fetch_assignments(name)
         if matches is None or len(matches) == 0:
@@ -829,6 +833,7 @@ class Course():
     def batch_upload_grades(self, grades, numparts = 1, assign_id = None):
         '''
         upload grades and associated comments for a set of students.  If 'numparts' is zero, upload only comments.
+        'grades' is a map from Canvas uids to any of: Grade() instance, int/float score, or list of (score,message)
         '''
         arglist = []
         prev_grades = self.fetch_assignment_grades(assign_id)
@@ -836,8 +841,14 @@ class Course():
         student_ids = self.fetch_active_students()
         for uid in grades:
             gr = grades[uid]
+            if gr is None:
+                continue
+            feedback = None
             if type(gr) is int or type(gr) is float:
                 gr = Grade(gr,'')
+            elif type(gr) is list or type(gr) is tuple:
+                feedback = gr[1]
+                gr = Grade(gr[0],gr[1])
             if numparts == 0:
                 grade = None
                 possible = 0
@@ -859,7 +870,8 @@ class Course():
                 elif self.verbose:
                     print('- skipping',name,'because grade has not changed')
                 continue
-            feedback = gr.feedback(numparts,possible)
+            if not feedback:
+                feedback = gr.feedback(numparts,possible)
             if self.verbose:
                 print('will upload',uid,grade,feedback)
             if numparts > 0 and grade is not None:
@@ -920,8 +932,9 @@ class Course():
         if reviewer_uids is None or reviewer_uids == []:
             return
         if type(reviewer_uids) is int:
-            reviewer_uids = [reviewer_uids]
-        arg_list = [('user_id[]',reviewer_uids)]
+            arg_list = [('user_id[]',reviewer_uids)]
+        else:
+            arg_list = [('user_id[]',uid) for uid in reviewer_uids]
         self.delete('courses/{}/assignments/{}/submissions/{}/peer_reviews'.format(self.id,assign_id,submission_id),
                     arg_list)
         return
@@ -1021,8 +1034,18 @@ class Course():
         return
 
     @staticmethod
+    def check_rubric_complete(rubric):
+        for crit in rubric:
+            if 'points' not in crit:
+                ## allow a blank comment-only entry
+                if 'description' in crit and 'comment' in crit['description']:
+                    continue
+                return False
+        return True
+
+    @staticmethod
     def copy_rubric_score_to_grade(submissions, rubric_def, rubric_grades, submit_grades, assessors, submit_points,
-                                   course, verbose = False):
+                                   course, verbose = False, require_complete = False):
         for sub in submissions:
             if sub['id'] not in assessors:
                 continue
@@ -1034,14 +1057,25 @@ class Course():
             if total_points == 0:
                 email = course.student_login(uid)
                 print('! {} ({}) received a zero score'.format(email,uid))
-            rubric_grades[uid] = total_points
-            submit_grades[reviewer] = submit_points
+            incomplete = require_complete and not Course.check_rubric_complete(data)
+            if incomplete:
+                print('! Incomplete rubric by {} for {}'.format(course.student_login(reviewer),course.student_login(uid)))
+                submit_grades[reviewer] = Grade(submit_points/2,"Incomplete rubric")
+            else:
+                rubric_grades[uid] = total_points
+                submit_grades[reviewer] = submit_points
             if verbose:
                 print(course.student_login(reviewer),'entered',total_points,'for',course.student_login(uid))
         return
 
+    @staticmethod
+    def clamp(val, limit):
+        if val and limit > 0 and val > limit:
+            val = limit
+        return val
+
     def confirm_peer_review_scores(self, review_assign_id = None, submit_assign_id = None,
-                                   parse_func = None, submit_points = 10):
+                                   parse_func = None, submit_points = 10, require_complete = False):
         '''
         Assign the score from a peer review as the grade for the assignment, and optionally assign
         full marks to another assignment for making the peer review.  If parse_func is given, call
@@ -1059,17 +1093,25 @@ class Course():
         # fetch the info for the rubric associated with the assignment and extract assessments
         if self.verbose:
             print('rubric_id:',rubric_def.rubric_id)
-        rubric_info = self.fetch_rubric(rubric_def.rubric_id,'peer_assessments',(parse_func != None))
+        rubric_type = 'assessments' if submit_assign_id is None else 'peer_assessments' ;
+        rubric_info = self.fetch_rubric(rubric_def.rubric_id,rubric_type,(parse_func != None or require_complete))
         if type(rubric_info) is list:
             rubric_info = rubric_info[0]
         if self.verbose:
             print('======== RUBRIC INFO =========')
             print(rubric_info)
+            print('======== END RUBRIC =========')
+        points_possible = rubric_info['points_possible'] if 'points_possible' in rubric_info else 0
         peer_reviews = self.fetch_reviews(review_assign_id)
         ## fetch all submissions, including the rubric_assessment  BUG: doesn't work for peer reviews!
         #arglist = [('include[]','rubric_assessments')]
+        arglist = [('include[]','assessments')]
         arglist = [('include[]','submission_comments')]
         submissions = self.fetch_assignment_submissions(review_assign_id,arglist)
+        #if self.verbose:
+        #    print('============ SUBMISSIONS ============')
+        #    print(submissions)
+        #    print('============ END SUBMISSIONS ============')
         rubric_grades = {}	# map from uid to score earned from rubric
         submit_grades = {}	# map from uid to score for submitting peer_review
         assessors = {}		# map from submission_id to uid for assessor
@@ -1078,11 +1120,13 @@ class Course():
             if self.verbose:
                 assessors = { a['artifact_id'] : (a['assessor_id'], a['score']) for a in rubric_info['assessments'] }
                 print('ASSESSORS:',assessors)
-            assessors = { a['artifact_id'] : (a['assessor_id'], a['score'], a['data'] if 'data' in a else None) \
+            assessors = { a['artifact_id'] : (a['assessor_id'], Course.clamp(a['score'],points_possible),
+                                              a['data'] if 'data' in a else None) \
                           for a in rubric_info['assessments'] }
         if parse_func is None:
             parse_func = self.copy_rubric_score_to_grade
-        parse_func(submissions,rubric_def,rubric_grades,submit_grades,assessors,submit_points,self,self.verbose)
+        parse_func(submissions,rubric_def,rubric_grades,submit_grades,assessors,submit_points,self,self.verbose,
+                   require_complete)
         print('')
         print('Uploading rubric grades')
         try:

@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 09jun2018
+##  last edit: 07jun2018
 
 import csv
 import math
@@ -16,6 +16,12 @@ from statistics import mean  # requires Python 3.4+
 from canvaslms import Course, Grade, CanvasCSV
 from canvascmu import Institution
 
+try:
+    from hackerrank import HackerRank
+    have_HR = True
+except ImportError:
+    have_HR = False
+
 ######################################################################
 
 ## configuration
@@ -25,7 +31,7 @@ HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 10839 # uid of the Test Student for the course
 ## People whose comments should be ignored when processing peer reviews.  Use the display_name for each.
-COURSE_STAFF = ['Ralf Brown', 'Yuchen Cao', 'Yunhan Gao', 'Liang Zhang', 'Kuo Zhao']
+COURSE_STAFF = ['Ralf Brown', 'Jin Cao', 'Shaotong Li', 'Kaiyu Zheng', 'Tony Zhu']
 
 ## for very skewed grades, we may want to compute standard deviation separately for grades above and below the mean
 SPLIT_STDDEV = True
@@ -39,6 +45,11 @@ SHUFFLE_ASSESSMENT_POINTS = 60
 SHUFFLE_FEEDBACK_POINTS = 40
 SHUFFLE_SUBMISSION_POINTS = 50
 
+INCOMPLETE_RUBRIC_PENALTY = 0.50
+
+## 20% penalty for not submitting a photo along with the interviewee assessment
+NO_PHOTO_PENALTY = 0.20
+
 ######################################################################
 
 def add_bootcamp_flags(parser):
@@ -49,6 +60,8 @@ def add_bootcamp_flags(parser):
     parser.add_argument("-H","--homework",action="store_true",help="interpret CSV file as a homework assignment")
     parser.add_argument("-S","--shuffle",metavar="NAME",help="use assignment NAME as source of grades for shuffle assessment")
     parser.add_argument("-F","--feedback",metavar="NAME",help="use assignment NAME as source of grades for shuffle feedback")
+    if have_HR:
+        parser.add_argument("--copyscores",metavar="TESTIDLIST",help="copy scores from HackerRank tests listed in TESTIDLIST")
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
     parser.add_argument("--reassign",action="store_true",help="assign a new interviewee to an interviewer")
@@ -133,8 +146,9 @@ def normalize_q_value(val):
 def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
     # read header line
     row = csv.next_row()
+    interviewer = extract_andrew_from_filename(filename,'assessment')
     if "Feedback" in row[0]:
-        print('*',extract_andrew_from_filename(filename,'assessment'),"submitted an Interviewer Feedback")
+        print('*',interviewer,"submitted an Interviewer Feedback")
         return
     # skip second header line
     csv.next_row()
@@ -148,6 +162,10 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
         print('Bad totalscore in',filename)
         totalscore = -1
         had_error = True
+
+    if interviewer == andrew:
+        print('*',interviewer,'gave own AndrewID as interviewee')
+        return
 
     # skip empty line
     csv.next_row()
@@ -233,9 +251,12 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
 
 ######################################################################
 
-def email_to_AndrewID(login):
+def email_to_AndrewID(login, default_id=None):
     if MAIL in login:
         login, m, rest = login.rpartition(MAIL)
+    if '@' in login and default_id:
+        # non-Andrew email, so use provided Andrew ID
+        login = default_id
     return login.strip().lower()
 
 ######################################################################
@@ -339,13 +360,14 @@ def process_grades(course, flags, csv_files):
 ######################################################################
 
 def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_grades, assessors,
-                               submit_points, course, verbose = False):
+                               submit_points, course, verbose = False, require_complete = False):
     if verbose:
         print(len(submissions),'total submissions retrieved')
     for sub in submissions:
         if sub['id'] not in assessors:
             continue
         pts = submit_points
+        incomplete = False
         remarks = ''
         attachments = []
         if 'submission_comments' in sub:
@@ -362,7 +384,15 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
         reviewer, _, criteria = assessors[sub['id']]
         crit_points = {}
         for crit in criteria:
-            if 'points' not in crit or 'criterion_id' not in crit or crit['points'] < 0.0:
+            if require_complete:
+                if 'points' not in crit or 'criterion_id' not in crit:
+                    if not incomplete:
+                        pts = pts - (INCOMPLETE_RUBRIC_PENALTY * submit_points)
+                        remarks += ('Incomplete rubric (-{})'
+                    		    .format(Grade.drop_decimals(INCOMPLETE_RUBRIC_PENALTY*submit_points)))
+                        incomplete = True
+                    continue
+            elif 'points' not in crit or 'criterion_id' not in crit or crit['points'] < 0.0:
                 continue		# N/A or non-scored criterion
             points = crit['points']
             c_id = crit['criterion_id']
@@ -374,7 +404,8 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
             if 'Suggestions' in name:
                 if len(crit['comments']) < 8:
                     pts = pts - (0.05 * submit_points)
-                    remarks += 'Did not provide suggested improvements (-{})\n'.format(Grade.drop_decimals(0.05*submit_points))
+                    remarks += 'Did not provide suggested improvements (-{})\n' \
+                               .format(Grade.drop_decimals(0.05*submit_points))
                 continue
             if 'Location' in name:
                 if len(crit['comments']) < 8:
@@ -391,7 +422,7 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
             print('crit_points:',crit_points)
         for itemname, pointlist in crit_points.items():
             total_points += mean(pointlist)
-            possible += 3
+            possible += 5
         if total_points == 0:
             print('!  {} ({}) received a zero score'.format(course.student_login(uid),uid))
         if possible > 0:
@@ -402,8 +433,8 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
             print('empty rubric for {} ({})'.format(course.student_login(uid),uid))
         if reviewer is not None:
             if attachments == []: ##FIXME
-                pts = pts - (0.30 * submit_points)
-                remarks += 'Did not upload photo (-{})'.format(Grade.drop_decimals(0.30*submit_points))
+                pts = pts - (NO_PHOTO_PENALTY * submit_points)
+                remarks += 'Did not upload photo (-{})'.format(Grade.drop_decimals(NO_PHOTO_PENALTY*submit_points))
             submit_grades[reviewer] = Grade(pts,remarks)
             if verbose or True: ##DEBUG
                 print(' ',course.student_login(reviewer),'entered',grade,'for',course.student_login(uid))
@@ -414,9 +445,11 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
 def process_shuffle_rubric(course, flags):
     if flags.feedback:
         submit_assign_id = course.find_assignment_id(flags.feedback)
-        return course.confirm_peer_review_scores(course.assignment_id,submit_assign_id)
+        return course.confirm_peer_review_scores(course.assignment_id,submit_assign_id,None,SHUFFLE_SUBMISSION_POINTS,
+                                                 require_complete=True)
     submit_assign_id = course.find_assignment_id(flags.shuffle)
-    return course.confirm_peer_review_scores(course.assignment_id,submit_assign_id,process_shuffle_assessment)
+    return course.confirm_peer_review_scores(course.assignment_id,submit_assign_id,process_shuffle_assessment,
+                                             SHUFFLE_SUBMISSION_POINTS)
 
 ######################################################################
 
@@ -495,6 +528,117 @@ def autodetect(flags,filename):
         pass
     ## FIXME
     return False
+
+######################################################################
+
+def HR_submit_day_time(timestamp):
+    if not timestamp or 'T' not in timestamp:
+        return None, None
+    date, time = timestamp.split('T')
+    day = Course.day_of_year(Course.normalize_date(date))
+    hour = int(time.split(':')[0])
+    return day, hour
+
+######################################################################
+
+def HR_late_penalty(due_day, submit_day, submit_hour):
+    if not due_day or submit_day <= due_day:
+        return 0.0
+    late = (submit_day - due_day) * 0.1
+    if submit_hour == 0:
+        late -= 0.05 # only 5% penalty instead of 10% if submitted before 1am
+    if late > 0.7:   # no submissions accepted more than 7 days late
+        late = 1.0
+    return late
+    
+######################################################################
+
+def HR_build_feedback(hr, partnum, questions, late_penalty = 0.0):
+    pass
+
+######################################################################
+
+def collect_scores(raw):
+    '''
+    convert a list of scores for the parts of an assignment into a map
+    from student to score on each part
+    '''
+    scores = {}
+    which = 0
+    for rawsc in raw:
+        for sc in rawsc:
+            email = sc['email']
+            andrew = sc['andrew'] if sc['andrew'] != '' else None
+            user = email_to_AndrewID(email,andrew)
+            s = scores[user] if user in scores else []
+            for _ in range(len(s),which-1):
+                s = s.append(None)
+            s.append((sc['score'],sc['questions'],HR_submit_day_time(sc['endtime'])))
+            scores[user] = s
+        which += 1
+    # ensure that any students who missed the last part get a null
+    for email in scores:
+        s = scores[email]
+        for _ in range(len(s),which):
+            s = s.append(None)
+    return scores
+
+######################################################################
+
+if have_HR:
+    def copy_HR_scores(course, args):
+        hr = HackerRank(verbose = args.verbose)
+        t_ids = args.copyscores.split(',')
+        raw_scores = []
+        for t_id in t_ids:
+            print('Fetching scores for test',t_id)
+            raw_scores.append(hr.get_all_test_scores(t_id))
+        # reshuffle the scores so that we have one list per student, containing the scores from all parts
+        scores = collect_scores(raw_scores)
+        grades = {}
+        for user in scores:
+            uid = course.get_student_id(user)
+            if uid is None:
+                uid = TEST_STUDENT ##DEBUG
+                #continue
+            if course.due_day > 366 and None in scores[user]:
+                # not yet due and there are missing parts, so skip
+                continue
+            total = 0.0
+            numparts = len(scores[user])
+            msg = ''
+            for part, sc in enumerate(scores[user]):
+                if numparts > 1:
+                    msg += 'Part {}:'.format(part+1)
+                if not sc:
+                    msg += hr.feedback(None,0.0)
+                    msg += '\n'
+                else:
+                    late = HR_late_penalty(course.due_day,sc[2][0],sc[2][1])
+                    total += hr.late_score(sc[0],late)
+                    msg += hr.feedback(sc[1],late)
+                    msg += '\n'
+            if numparts > 1:
+                overall = args.points
+                if not overall or int(overall) <= 0:
+                    overall = 100
+                if total == int(total):
+                    total = int(total)
+                msg += 'Sum:\t{}/{} points'.format(total,overall)
+            grades[uid] = (total, msg)
+            if args.verbose:
+                print('{} ({})'.format(user,uid))
+                print(msg)
+            else:
+                print('{}: {}'.format(user,total))
+        ##FIXME: upload to Canvas
+        course.batch_upload_grades(grades)
+        return True
+
+else:
+    def copy_HR_scores(course, args):
+        print('Please install hackerrank.py to use this feature')
+        return False
 
 ######################################################################
 
@@ -717,13 +861,40 @@ def main():
             Course.display_rubric_ids(args.host, args.course, args.verbose)
         return
     if args.makecurve is True:
-        standard = [('A+',2.4,98),('A',1.8,96),('A-',1.0,93),
-                    ('B+',0.4,90),('B',-0.2,86),('B-',-1.0,83),
-                    ('C+',-1.6,77),('C',-2.2,74),('C-',-3.0,70),
-                    ('D+',-3.6,67),('D',-4.2,64),('D-',-4.8,60)]
         course = Course(args.host, args.course, verbose = args.verbose)
         course.mail_address(MAIL)
-        course.make_curve(standard,SPLIT_STDDEV,args.verbose,args.dryrun,-2.2)
+        # course.target_mean = 85
+        # standard = [('A+',2.4,99.5),('A',1.8,99),('A-',1.0,98),
+        #             ('B+',0.4,97),('B',-0.2,96),('B-',-1.0,95),
+        #             ('C+',-1.6,94),('C',-2.2,93),('C-',-3.0,92),
+        #             ('D+',-3.6,90),('D',-4.2,88),('D-',-4.8,86)]
+        # pass_dev = -2.0
+        # course.target_mean = 86
+        # standard = [('A+',2.2,99.5),('A',1.6,99),('A-',0.8,98),
+        #             ('B+',0.2,97),('B',-0.4,96),('B-',-1.2,95),
+        #             ('C+',-1.8,94),('C',-2.4,93),('C-',-3.2,92),
+        #             ('D+',-3.8,90),('D',-4.4,88),('D-',-5.0,86)]
+        # pass_dev = -2.2
+        # course.target_mean = 87
+        # standard = [('A+',2.0,99.5),('A',1.4,99),('A-',0.6,98),
+        #             ('B+',0.0,97),('B',-0.6,96),('B-',-1.4,95),
+        #             ('C+',-2.0,94),('C',-2.6,93),('C-',-3.4,92),
+        #             ('D+',-4.0,90),('D',-4.6,88),('D-',-5.2,86)]
+        # pass_dev = -2.4
+        course.target_mean = 88
+        standard = [('A+',1.8,99.5),('A',1.2,99),('A-',0.4,98),
+                    ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
+                    ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
+                    ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
+        pass_dev = -2.6
+        # course.target_mean = 89
+        # standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
+        #             ('B+',-0.4,97),('B',-1.0,96),('B-',-1.8,95),
+        #             ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
+        #             ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
+        # pass_dev = -2.8
+        print("Target mean:",course.target_mean)
+        course.make_curve(standard,SPLIT_STDDEV,args.verbose,args.dryrun,pass_dev)
         return
     if args.reassign:
         reassign(args,remargs)
@@ -767,12 +938,19 @@ def main():
         course.add_peer_reviewer(args.addreviewer,remargs[0])
     elif args.makeshuffle is True:
         make_shuffle(course,args)
+    elif args.copyscores:
+        copy_HR_scores(course,args)
+        return
     elif args.feedback or args.shuffle:
         if args.old:
             process_shuffle_csv(course,args)
         else:
             process_shuffle_rubric(course,args)
-    elif remargs is not None and remargs != []:
+        return
+    if not course.assignment_id:
+        print("Not doing anything, because the assignment was 'None' or not found")
+        return
+    if remargs is not None and remargs != []:
         process_grades(course,args,remargs)
     else:
         print("Sending grade of",args.grade,"for UID",args.uid)
