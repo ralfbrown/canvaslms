@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 28oct2018
+##  last edit: 08jun2019
 
 import argparse
 import csv
@@ -361,6 +361,20 @@ class Course():
         if 'name' in me:
             return me['name']
         return 'Not authenticated'
+
+    def student_name(self, uid):
+        '''
+        retrieve the student name from the given user ID
+        '''
+        enrollments = self.fetch_roster()
+        for enroll in enrollments:
+            student = enroll['user']
+            if student['id'] == uid:
+                if 'name' in student:
+                    return student['name']
+                else:
+                    return None
+        return None
 
     def student_email(self, uid):
         '''

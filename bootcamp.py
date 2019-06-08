@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 07jun2018
+##  last edit: 08jun2018
 
 import csv
 import math
@@ -61,6 +61,7 @@ def add_bootcamp_flags(parser):
     parser.add_argument("-S","--shuffle",metavar="NAME",help="use assignment NAME as source of grades for shuffle assessment")
     parser.add_argument("-F","--feedback",metavar="NAME",help="use assignment NAME as source of grades for shuffle feedback")
     if have_HR:
+        parser.add_argument("--invite",metavar="TESTID",help="invite students on roster to HackerRank test TESTID (use --message for the custom text in the invitation email)")
         parser.add_argument("--copyscores",metavar="TESTIDLIST",help="copy scores from HackerRank tests listed in TESTIDLIST")
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
@@ -531,6 +532,47 @@ def autodetect(flags,filename):
 
 ######################################################################
 
+if have_HR:
+    def HR_invite(course,args):
+        hr = HackerRank(verbose=args.verbose)
+        hr.simulate(args.dryrun)
+        test_id = args.invite
+        msg = args.message if args.message else None
+        if args.student:
+            students = [args.student]
+        else:
+            students = course.fetch_active_students()
+        success = 0
+        failure = 0
+        for st in students:
+            if type(students) == dict:
+                name = course.student_name(students[st])
+            else:
+                name = None
+            email = st if '@' in st else st + MAIL
+            response = None
+            response = hr.invite_test_candidate(test_id,name,email,msg)
+            if response and 'test_link' in response:
+                if args.verbose:
+                    print('{}: {}'.format(email,response['id']))
+                success += 1
+                if type(students) == dict:
+                    ## upload a comment with the test link
+                    ##FIXME
+                    pass
+            else:
+                if args.verbose:
+                    print('{}: failed'.format(email))
+                failure += 1
+        print('{} invitations sent, {} errors'.format(success,failure))
+        return True
+else:
+    def HR_invite(course,args):
+        print('Please install hackerrank.py to use this feature')
+        return False
+
+######################################################################
+
 def HR_submit_day_time(timestamp):
     if not timestamp or 'T' not in timestamp:
         return None, None
@@ -551,11 +593,6 @@ def HR_late_penalty(due_day, submit_day, submit_hour):
         late = 1.0
     return late
     
-######################################################################
-
-def HR_build_feedback(hr, partnum, questions, late_penalty = 0.0):
-    pass
-
 ######################################################################
 
 def collect_scores(raw):
@@ -938,6 +975,9 @@ def main():
         course.add_peer_reviewer(args.addreviewer,remargs[0])
     elif args.makeshuffle is True:
         make_shuffle(course,args)
+    elif args.invite:
+        HR_invite(course,args)
+        return
     elif args.copyscores:
         copy_HR_scores(course,args)
         return
