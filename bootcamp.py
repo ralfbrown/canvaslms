@@ -532,14 +532,34 @@ def autodetect(flags,filename):
 
 ######################################################################
 
+def load_indirect_text(text):
+    if text and len(text) > 1 and text[0] == '@':
+        ## read text from the named file
+        filename = text[1:]
+        text = None
+        try:
+            with open(filename,'r') as f:
+                text = f.read()
+        except Exception as err:
+            print(err)
+            return None
+    return text
+
+######################################################################
+
 if have_HR:
     def HR_invite(course,args):
         hr = HackerRank(verbose=args.verbose)
         hr.simulate(args.dryrun)
         test_id = args.invite
-        msg = args.message if args.message else None
+        msg = load_indirect_text(args.message)
+        if msg is None or msg == '':
+            print('No message specified with --message.  If you really want to use the\ndefault template, specify a message of "="')
+            return True
+        if msg == '=':
+            msg = None
         if args.student:
-            students = [args.student]
+            students = args.student.split(',')
         else:
             students = course.fetch_active_students()
         success = 0
@@ -561,8 +581,7 @@ if have_HR:
                     ##FIXME
                     pass
             else:
-                if args.verbose:
-                    print('{}: failed'.format(email))
+                print('{}: failed'.format(email))
                 failure += 1
         print('{} invitations sent, {} errors'.format(success,failure))
         return True
