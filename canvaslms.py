@@ -74,6 +74,8 @@ class Grade():
         return None
 
     def percentage(self, possible):
+        if possible is None:
+            possible = 0
         poss = int(possible)
         if poss > 0:
             perc = int((10000.0 * self.totalpoints / poss) + 0.5)
@@ -1197,6 +1199,9 @@ class Course():
         missed = {}
         for uid in ungraded:
             missed[uid] = Grade(0,comment)
+        if self.dryrun:
+            print("**** IMPORTANT NOTE: the below list indicates who would be marked missing ****")
+            print("****   based on what scores were in the gradebook prior to this command!  ****")
         try:
             self.batch_upload_grades(missed)
         except CanvasException as err:

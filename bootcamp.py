@@ -1,9 +1,10 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 08jun2018
+##  last edit: 11jun2019
 
 import csv
+import datetime
 import math
 import os
 import random
@@ -60,9 +61,6 @@ def add_bootcamp_flags(parser):
     parser.add_argument("-H","--homework",action="store_true",help="interpret CSV file as a homework assignment")
     parser.add_argument("-S","--shuffle",metavar="NAME",help="use assignment NAME as source of grades for shuffle assessment")
     parser.add_argument("-F","--feedback",metavar="NAME",help="use assignment NAME as source of grades for shuffle feedback")
-    if have_HR:
-        parser.add_argument("--invite",metavar="TESTID",help="invite students on roster to HackerRank test TESTID (use --message for the custom text in the invitation email)")
-        parser.add_argument("--copyscores",metavar="TESTIDLIST",help="copy scores from HackerRank tests listed in TESTIDLIST")
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
     parser.add_argument("--reassign",action="store_true",help="assign a new interviewee to an interviewer")
@@ -70,7 +68,24 @@ def add_bootcamp_flags(parser):
     parser.add_argument("--students",metavar="FILE",help="use list of students in FILE instead of current roster for --makeshuffle")
     parser.add_argument("--addreviewer")
     parser.add_argument("--old",action="store_true",help="use .csv files for shuffle scores instead of rubric")
+    if have_HR:
+        parser.add_argument("--invite",metavar="TESTID",help="invite students on roster to HackerRank test TESTID (use --message for the custom text in the invitation email)")
+        parser.add_argument("--copyscores",metavar="TESTIDLIST",help="copy scores from HackerRank tests listed in TESTIDLIST")
+        parser.add_argument("--autoprocess",action="store_true",help="run unattended --invite and --copyscores processes")
     return
+
+######################################################################
+
+def setup_course(args):
+    course = Course(HOST, COURSE_NAME, verbose=args.verbose)
+    course.simulate(args.dryrun)
+    course.mail_address(MAIL)
+    course.use_raw_points(args.use_raw_points)
+    course.set_points(args.points)
+    course.set_late_percentage(LATE_PERCENTAGE,LATE_DAYS)
+    course.set_due_day(args.due_day)
+    course.find_assignment(args.assignment)
+    return course
 
 ######################################################################
 
@@ -352,9 +367,6 @@ def process_grades(course, flags, csv_files):
         numparts = 1
     course.batch_upload_grades(grades,numparts)
     if flags.inclass:
-        if flags.dryrun:
-            print("**** IMPORTANT NOTE: the below list indicates who would be marked missing ****")
-            print("****   based on what scores were in the gradebook prior to this command!  ****")
         course.zero_missing_assignment()
     return
 
@@ -437,7 +449,7 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
                 pts = pts - (NO_PHOTO_PENALTY * submit_points)
                 remarks += 'Did not upload photo (-{})'.format(Grade.drop_decimals(NO_PHOTO_PENALTY*submit_points))
             submit_grades[reviewer] = Grade(pts,remarks)
-            if verbose or True: ##DEBUG
+            if verbose:
                 print(' ',course.student_login(reviewer),'entered',grade,'for',course.student_login(uid))
     return
 
@@ -708,6 +720,101 @@ else:
 
 ######################################################################
 
+def date_matches(datespec,mindate,maxdate):
+    if not datespec or datespec[0] == '#' or not mindate:
+        return False
+    datespec = datespec.split(':')[0]
+    date = datetime.date(year=mindate.year,month=int(datespec[0:2]),day=int(datespec[2:4]))
+    if maxdate:
+        return date >= mindate and date <= maxdate
+    else:
+        return date == mindate
+
+######################################################################
+
+def matching_dates(lines,mindate,maxdate=None):
+    return [line for line in lines if date_matches(line,mindate,maxdate)]
+
+######################################################################
+
+def autoprocess_invite(args,spec):
+    if type(spec) != list:
+        spec = [spec]
+    for inclass in spec:
+        dt, hr_id, assign_name, msg = inclass.split(':')
+        args.invite = hr_id
+        args.assignment = assign_name
+        args.message = msg
+        course = setup_course(args)
+        if not course.assignment_id:
+            print('Assignment',assign_name,'not found')
+            continue
+        HR_invite(course,args)
+    return
+
+######################################################################
+
+def autoprocess_score(args,spec):
+    if type(spec) != list:
+        spec = [spec]
+    for inclass in spec:
+        fields = inclass.split(':')
+        if len(fields) < 4:
+            fields.append((4-len(fields))*[''])
+        dt, hr_id, assign_name, msg = fields
+        args.copyscores = hr_id
+        args.assignment = assign_name
+        course = setup_course(args)
+        copy_HR_scores(course, args)
+        if args.inclass:
+            course.zero_missing_assignment()
+    return
+
+######################################################################
+
+def autoprocess(args, remargs):
+    if not have_HR:
+        print('Please install hackerrank.py to use this feature')
+        return False
+    today = datetime.date.today()
+    ## send out invites for, or score, in-class exercises
+    try:
+        with open('inclass.txt','r') as f:
+            lines = matching_dates(f.read().split('\n'),today)
+            hour = datetime.datetime.now().hour
+            if hour < 12:
+                autoprocess_invite(args,lines)
+            elif hour >= 13:
+                args.inclass = True
+                autoprocess_score(args,lines)
+                args.inclass = False
+    except Exception as err:
+        print('Skipping processing of in-class exercises')
+        if args.verbose:
+            print(' ',err)
+    ## send out invites for homework assignments
+    try:
+        with open('homework.txt','r') as f:
+            lines = matching_dates(f.read().split('\n'),today)
+            autoprocess_invite(args,lines)
+    except Exception as err:
+        print('Skipping processing of homework invitations')
+        if args.verbose:
+            print(' ',err)
+    ## copy scores for homework assignments
+    try:
+        with open('hw-scores.txt','r') as f:
+            lastweek = today - datetime.timedelta(days=8)
+            lines = matching_dates(f.read().split('\n'),lastweek,today)
+            autoprocess_score(args,lines)
+    except Exception as err:
+        print('Skipping processing of homework scoring')
+        if args.verbose:
+            print(' ',err)
+    return True
+
+######################################################################
+
 def make_interview(interviewers, i, questions):
     if i+1 < len(interviewers):
         interviewee = interviewers[i+1]
@@ -893,7 +1000,7 @@ def reassign(flags, remargs):
         feedback_comments[interviewee_uid] = Grade(0,('Your interview has been re-assigned.\n'+ \
                                                    'Your new interviewer is: {}\n'+ \
                                                    'The feedback link is: {}\n').format(interviewer,fb_link))
-    if False:
+    if True:
         # remove existing peer-review assignments for interviewees from the Canvas assignment named by
         # the --shuffle flag, then upload the new peer-review assignments
         print("removing peer reviewers in assignment",flags.shuffle)
@@ -920,6 +1027,7 @@ def main():
         return
     if Institution.process_generic_commands(args, remargs):
         return
+    args.use_raw_points = False
     if args.listrubrics is True:
         if args.uid and args.uid != TEST_STUDENT:
             Course.display_rubric(args.host, args.course, args.uid, args.verbose)
@@ -965,6 +1073,9 @@ def main():
     if args.reassign:
         reassign(args,remargs)
         return
+    if args.autoprocess:
+        autoprocess(args,remargs)
+        return
 
     if args.assignment is None:
         print('You must specify an assignment name with -a')
@@ -986,17 +1097,8 @@ def main():
             args.points = 100
     if args.shuffle or args.feedback:
         args.use_raw_points = True
-    else:
-        args.use_raw_points = False
 
-    course = Course(HOST, COURSE_NAME, verbose=args.verbose)
-    course.simulate(args.dryrun)
-    course.mail_address(MAIL)
-    course.use_raw_points(args.use_raw_points)
-    course.set_points(args.points)
-    course.set_late_percentage(LATE_PERCENTAGE,LATE_DAYS)
-    course.set_due_day(args.due_day)
-    course.find_assignment(args.assignment)
+    course = setup_course(args)
     if course.assignment_id is None:
         return
 
