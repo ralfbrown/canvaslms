@@ -1248,6 +1248,25 @@ class Course():
         return int('{}{:02}{:02}'.format(int(parts[0]),int(parts[1]),int(parts[2])))
 
     @staticmethod
+    def print_assignment_analytics(analytics):
+        title = analytics['title']
+        due = analytics['due_at']
+        points = analytics['points_possible']
+        minpts = analytics['min_score']
+        maxpts = analytics['max_score']
+        median = analytics['median']
+        tardiness = analytics['tardiness_breakdown']
+        print('{} ({} points) due {}'.format(title,points,due))
+        print(  '{}/{}/{} min/med/max points earned'.format(minpts,median,maxpts))
+        if tardiness:
+            on_time = int(tardiness['on_time'])
+            late = int(tardiness['late'])
+            missing = int(tardiness['missing'])
+            floating = int(tardiness['floating'])
+            print(  '{} on time, {} late, {} missing, {} floating'.format(on_time,late,missing,floating))
+        return
+
+    @staticmethod
     def print_course(courseinfo):
         c_id = courseinfo['id']
         name = courseinfo['name'] if 'name' in courseinfo else '{none}'
@@ -1273,6 +1292,14 @@ class Course():
         course = Course(args.host, args.course, verbose=args.verbose)
         assignments = course.fetch_assignments(search)
         print(assignments)
+        return True
+
+    @staticmethod
+    def display_assignment_analytics(args, search = None):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        assignments = course.get('courses/{}/analytics/assignments'.format(course.id))
+        for a in assignments:
+            Course.print_assignment_analytics(a)
         return True
 
     @staticmethod
@@ -1567,6 +1594,8 @@ class Course():
             return Course.display_reviews(args, args.assignment)
         if args.activity is True:
             return Course.display_course_activity(args)
+        if args.analytics is True:
+            return Course.display_assignment_analytics(args)
         if args.permissions is True:
             return Course.display_course_permissions(args)
         if args.settings is True:
@@ -1622,6 +1651,7 @@ class Course():
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
         parser.add_argument("--listcourses",action="store_true",help="list all of your courses")
         parser.add_argument("--activity",action="store_true",help="show daily activity for the course")
+        parser.add_argument("--analytics",action="store_true",help="show assignment analytics for the course")
         parser.add_argument("--permissions",action="store_true",help="list your permissions for the course")
         parser.add_argument("--settings",action="store_true",help="display course settings")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
