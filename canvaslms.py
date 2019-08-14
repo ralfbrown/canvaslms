@@ -187,9 +187,18 @@ class Course():
         if courses == []:
             print('Unable to establish connection to server.  Goodbye....')
             quit()
+        try:
+            self.id = int(course_name)
+        except:
+            self.id = None
         start = '0000-00-00'
         # find the most recent iteration of the named course
         for c in courses:
+            if c['id'] and c['id'] == self.id:
+                self.name = c['name']
+                if 'start_at' in c:
+                    start = c['start_at']
+                break  # we've found the course with the given ID
             if 'name' in c and c['name'] == course_name and ('start_at' not in c or c['start_at'] > start):
                 self.id = c['id']
                 self.name = c['name']
@@ -1287,6 +1296,23 @@ class Course():
         print('   {} students, role: {}'.format(num_students,enrollment))
         return
 
+    def print_student_summary(self,studentinfo):
+        s_id = studentinfo['id']
+        name = self.student_name(s_id)
+        if not name:
+            return
+        page_views = studentinfo['page_views'] if studentinfo['page_views'] else 0
+        view_level = studentinfo['page_views_level']
+        part = studentinfo['participations'] if studentinfo['participations'] else 0
+        tardiness = studentinfo['tardiness_breakdown']
+        on_time = tardiness['on_time']
+        late = tardiness['late']
+        missing = tardiness['missing']
+        floating = tardiness['floating']
+        print('{}: {} views/{} participations'.format(name,page_views,part))
+        print('   assignments: {} on time, {} late, {} missing, {} floating'.format(on_time,late,missing,floating))
+        return
+
     @staticmethod
     def display_assignments(args, search = None):
         course = Course(args.host, args.course, verbose=args.verbose)
@@ -1527,6 +1553,14 @@ class Course():
         return True
 
     @staticmethod
+    def display_student_summaries(args):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        summaries = course.get('courses/{}/analytics/student_summaries'.format(course.id))
+        for s in summaries:
+            course.print_student_summary(s)
+        return True
+    
+    @staticmethod
     def display_todo(args):
         course = Course(args.host, args.course, verbose=args.verbose)
         todo = course.fetch_todo()
@@ -1600,6 +1634,8 @@ class Course():
             return Course.display_course_permissions(args)
         if args.settings is True:
             return Course.display_course_settings(args)
+        if args.summaries is True:
+            return Course.display_student_summaries(args)
         if args.post is True:
             return Course.display_post(args, remargs[0], remargs[1:])
         if args.put is True:
@@ -1654,6 +1690,7 @@ class Course():
         parser.add_argument("--analytics",action="store_true",help="show assignment analytics for the course")
         parser.add_argument("--permissions",action="store_true",help="list your permissions for the course")
         parser.add_argument("--settings",action="store_true",help="display course settings")
+        parser.add_argument("--summaries",action="store_true",help="display student summaries for the course")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
         parser.add_argument("--ungraded",action="store_true",help="display list of studentIDs for which there is no grade in the assignment")
         parser.add_argument("--upcoming",action="store_true",help="display list of upcoming calendar events")
