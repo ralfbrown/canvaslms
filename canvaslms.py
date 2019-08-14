@@ -1287,6 +1287,16 @@ class Course():
         return True
 
     @staticmethod
+    def display_course_activity(args):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        activity = course.get('courses/{}/analytics/activity'.format(course.id))
+        activity = sorted(activity,key=lambda x: x['date'])
+        print('Date\t\tViews\tParticipations')
+        for act in activity:
+            print('{}\t{}\t{}'.format(act['date'],act['views'],act['participations']))
+        return True
+
+    @staticmethod
     def display_course_permissions(args):
         course = Course(args.host, args.course, verbose=args.verbose)
         perm = course.get('courses/{}/permissions'.format(course.id))
@@ -1555,6 +1565,8 @@ class Course():
             return Course.display_grades(args.host, args.course, args.assignment,args.verbose)
         if args.listreviews is True:
             return Course.display_reviews(args, args.assignment)
+        if args.activity is True:
+            return Course.display_course_activity(args)
         if args.permissions is True:
             return Course.display_course_permissions(args)
         if args.settings is True:
@@ -1609,6 +1621,7 @@ class Course():
         parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
         parser.add_argument("--listcourses",action="store_true",help="list all of your courses")
+        parser.add_argument("--activity",action="store_true",help="show daily activity for the course")
         parser.add_argument("--permissions",action="store_true",help="list your permissions for the course")
         parser.add_argument("--settings",action="store_true",help="display course settings")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
