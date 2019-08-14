@@ -171,6 +171,7 @@ class Course():
         self.http_error_hook = None
         self.cached_roster = None
         self.cached_drops = None
+        self.cached_enrollments = None
         self.cached_submissions = None
         self.cached_assignment_id = None
         self.cached_reviews = None
@@ -371,9 +372,7 @@ class Course():
         '''
         retrieve the student name from the given user ID
         '''
-        enrollments = self.fetch_roster()
-        for enroll in enrollments:
-            student = enroll['user']
+        for student in self.fetch_roster():
             if student['id'] == uid:
                 if 'name' in student:
                     return student['name']
@@ -573,9 +572,7 @@ class Course():
         
     def fetch_active_students(self):
         student_ids = {}
-        enrollments = self.fetch_roster()
-        for enrollment in enrollments:
-            student = enrollment['user']
+        for student in self.fetch_roster():
             student_ids[student['login_id']] = student['id']
         return student_ids
 
@@ -651,6 +648,14 @@ class Course():
             self.cached_drops = self.get('courses/{}/enrollments'.format(self.id),arglist,True)
         return self.cached_drops
 
+    def fetch_enrollments(self):
+        if self.cached_enrollments is None:
+            if self.verbose:
+                print("Fetching current roster")
+            arglist = [('state','active'),('type','StudentEnrollment')]
+            self.cached_enrollments = self.get('courses/{}/enrollments'.format(self.id),arglist,True)
+        return self.cached_enrollments
+        
     def fetch_graded(self, student_ids = None):
         '''
         returns a list of student ids for which a grade has already been entered for the current assignment
@@ -725,8 +730,8 @@ class Course():
         if self.cached_roster is None:
             if self.verbose:
                 print("Fetching current roster")
-            arglist = [('state','active'),('type','StudentEnrollment')]
-            self.cached_roster = self.get('courses/{}/enrollments'.format(self.id),arglist,True)
+            arglist = [('enrollment_state[]','active'),('enrollment_type[]','student')]
+            self.cached_roster = self.get('courses/{}/users'.format(self.id),arglist,True)
         return self.cached_roster
         
     def fetch_rubric(self, id, which='assessments', full=True):
@@ -756,7 +761,7 @@ class Course():
 
     def fetch_running_grades(self):
         grades = []
-        enrollments = self.fetch_roster()
+        enrollments = self.fetch_enrollments()
         for enrollment in enrollments:
             if 'grades' not in enrollment:
                 continue
@@ -767,9 +772,7 @@ class Course():
 
     def fetch_students(self):
         student_ids = {}
-        enrollments = self.fetch_roster()
-        for enrollment in enrollments:
-            student = enrollment['user']
+        for student in self.fetch_roster():
             student_ids[student['login_id']] = student['id']
         drops = self.fetch_drops()
         for enrollment in drops:
@@ -1415,14 +1418,12 @@ class Course():
     @staticmethod
     def display_roster(args):
         course = Course(args.host, args.course, verbose=args.verbose)
-        enrollments = course.fetch_roster()
         if args.liststudents:
             header = 'UserID,Name,Email'
         else:
             header = 'Email,Name'
         print(header)
-        for enrollment in enrollments:
-            student = enrollment['user']
+        for student in course.fetch_roster():
             uid = str(student['id'])
             email = student['login_id']
             name = student['name']
