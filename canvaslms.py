@@ -1287,6 +1287,16 @@ class Course():
         return True
 
     @staticmethod
+    def display_course_permissions(args):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        perm = course.get('courses/{}/permissions'.format(course.id))
+        if type(perm) is type([]):
+            perm = perm[0]
+        for p in perm:
+            print('{}: {}'.format(p,perm[p]))
+        return True
+
+    @staticmethod
     def display_course_settings(args):
         course = Course(args.host, args.course, verbose=args.verbose)
         settings = course.get('courses/{}/settings'.format(course.id))
@@ -1545,6 +1555,8 @@ class Course():
             return Course.display_grades(args.host, args.course, args.assignment,args.verbose)
         if args.listreviews is True:
             return Course.display_reviews(args, args.assignment)
+        if args.permissions is True:
+            return Course.display_course_permissions(args)
         if args.settings is True:
             return Course.display_course_settings(args)
         if args.post is True:
@@ -1597,6 +1609,7 @@ class Course():
         parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
         parser.add_argument("--listcourses",action="store_true",help="list all of your courses")
+        parser.add_argument("--permissions",action="store_true",help="list your permissions for the course")
         parser.add_argument("--settings",action="store_true",help="display course settings")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
         parser.add_argument("--ungraded",action="store_true",help="display list of studentIDs for which there is no grade in the assignment")
