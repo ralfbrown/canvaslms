@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 08jun2019
+##  last edit: 14aug2019
 
 import argparse
 import csv
@@ -186,11 +186,14 @@ class Course():
         if courses == []:
             print('Unable to establish connection to server.  Goodbye....')
             quit()
+        start = '0000-00-00'
+        # find the most recent iteration of the named course
         for c in courses:
-            if 'name' in c and c['name'] == course_name:
+            if 'name' in c and c['name'] == course_name and ('start_at' not in c or c['start_at'] > start):
                 self.id = c['id']
                 self.name = c['name']
-                break
+                if 'start_at' in c:
+                    start = c['start_at']
         if self.id is None:
             print('Requested course '+course_name+' not found.  Goodbye....')
             quit()
