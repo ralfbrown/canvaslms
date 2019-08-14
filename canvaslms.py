@@ -644,8 +644,8 @@ class Course():
         if self.cached_drops is None:
             if self.verbose:
                 print("Fetching dropped students")
-            arglist = [('state','completed'),('type','StudentEnrollment')]
-            self.cached_drops = self.get('courses/{}/enrollments'.format(self.id),arglist,True)
+            arglist = [('enrollment_state[]','completed'),('enrollment_type[]','student')]
+            self.cached_drops = self.get('courses/{}/users'.format(self.id),arglist,True)
         return self.cached_drops
 
     def fetch_enrollments(self):
@@ -774,9 +774,7 @@ class Course():
         student_ids = {}
         for student in self.fetch_roster():
             student_ids[student['login_id']] = student['id']
-        drops = self.fetch_drops()
-        for enrollment in drops:
-            student = enrollment['user']
+        for student in self.fetch_drops:
             student_ids[student['login_id']] = -student['id']
         return student_ids
 
@@ -1433,10 +1431,8 @@ class Course():
                 print(email + ',' + name)
         if args.verbose:
             print('********* DROPPED ***********')
-            drops = course.fetch_drops()
             print(header)
-            for enrollment in drops:
-                student = enrollment['user']
+            for student in course.fetch_drops():
                 uid = str(student['id'])
                 email = student['login_id']
                 name = student['name']
