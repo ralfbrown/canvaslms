@@ -194,7 +194,7 @@ class Course():
                 self.name = c['name']
                 if 'start_at' in c:
                     start = c['start_at']
-        if self.id is None:
+        if course_name and self.id is None:
             print('Requested course '+course_name+' not found.  Goodbye....')
             quit()
         self.run_verbosely(verbose)
@@ -629,6 +629,9 @@ class Course():
         if arglist is None:
             arglist = []
         return self.get('courses/{}/assignments/{}/submissions'.format(self.id,assign_id),arglist,True)
+
+    def fetch_courses(self):
+        return self.get('courses')
 
     def fetch_dashboard_positions(self,user_id = None):
         if user_id is None:
@@ -1239,12 +1242,41 @@ class Course():
         return int('{}{:02}{:02}'.format(int(parts[0]),int(parts[1]),int(parts[2])))
 
     @staticmethod
+    def print_course(courseinfo):
+        c_id = courseinfo['id']
+        name = courseinfo['name'] if 'name' in courseinfo else '{none}'
+        created = courseinfo['created_at'] if 'created_at' in courseinfo else 'unspecified'
+        start = courseinfo['start_at'] if 'start_at' in courseinfo else 'unspecified'
+        code = courseinfo['course_code'] if 'course_code' in courseinfo else 'xx-xxx'
+        def_view = courseinfo['default_view'] if 'default_view' in courseinfo else 'unspecified'
+        public = courseinfo['is_public'] if 'is_public' in courseinfo else 'No'
+        blueprint = courseinfo['blueprint'] if 'blueprint' in courseinfo else 'No'
+        enrollment = courseinfo['enrollments'] if 'enrollments' in courseinfo else 'None'
+        enrollment = ' '.join([e['type']+'/'+e['enrollment_state'] for e in enrollment])
+        print('{} {}'.format(code,name))
+        print('   id: {}, default view: {}, public: {}, blueprint: {}'.format(c_id,def_view,public,blueprint))
+        print('   created: {}, starts: {}'.format(created,start))
+        print('   role(s): {}'.format(enrollment))
+        return
+
+    @staticmethod
     def display_assignments(args, search = None):
         course = Course(args.host, args.course, verbose=args.verbose)
         assignments = course.fetch_assignments(search)
         print(assignments)
         return True
 
+    @staticmethod
+    def display_courses(args):
+        course = Course(args.host, None, verbose=args.verbose)
+        courses = course.fetch_courses()
+        if not courses:
+            print('No courses found')
+            return True
+        for c in courses:
+            Course.print_course(c)
+        return True
+    
     @staticmethod
     def display_get(args, endpoint, arglist=[]):
         if len(arglist) % 2 != 0:
@@ -1490,6 +1522,8 @@ class Course():
             return Course.display_grade_stats(args)
         if args.listassignments is True:
             return Course.display_assignments(args, args.assignment)
+        if args.listcourses is True:
+            return Course.display_courses(args)
         if args.listcurves is True:
             return Course.display_grading_standards(args)
         if args.listgrades is True:
@@ -1546,6 +1580,7 @@ class Course():
         parser.add_argument("--listreviews",action="store_true",help="display list of peer reviews for the assignment")
         parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
+        parser.add_argument("--listcourses",action="store_true",help="list all of your courses")
         parser.add_argument("--todo",action="store_true",help="retrieve personal TODO list")
         parser.add_argument("--ungraded",action="store_true",help="display list of studentIDs for which there is no grade in the assignment")
         parser.add_argument("--upcoming",action="store_true",help="display list of upcoming calendar events")
