@@ -630,8 +630,13 @@ class Course():
             arglist = []
         return self.get('courses/{}/assignments/{}/submissions'.format(self.id,assign_id),arglist,True)
 
-    def fetch_courses(self):
-        return self.get('courses')
+    def fetch_courses(self,student_count,concluded):
+        arglist=[]
+        if student_count:
+            arglist.append(('include[]','total_students'))
+        if concluded:
+            arglist.append(('include[]','concluded'))
+        return self.get('courses',arglist=arglist)
 
     def fetch_dashboard_positions(self,user_id = None):
         if user_id is None:
@@ -1245,6 +1250,8 @@ class Course():
     def print_course(courseinfo):
         c_id = courseinfo['id']
         name = courseinfo['name'] if 'name' in courseinfo else '{none}'
+        if 'concluded' in courseinfo and courseinfo['concluded']:
+            name += '  (concluded)'
         created = courseinfo['created_at'] if 'created_at' in courseinfo else 'unspecified'
         start = courseinfo['start_at'] if 'start_at' in courseinfo else 'unspecified'
         code = courseinfo['course_code'] if 'course_code' in courseinfo else 'xx-xxx'
@@ -1253,10 +1260,11 @@ class Course():
         blueprint = courseinfo['blueprint'] if 'blueprint' in courseinfo else 'No'
         enrollment = courseinfo['enrollments'] if 'enrollments' in courseinfo else 'None'
         enrollment = ' '.join([e['type']+'/'+e['enrollment_state'] for e in enrollment])
+        num_students = courseinfo['total_students'] if 'total_students' in courseinfo else 0
         print('{} {}'.format(code,name))
         print('   id: {}, default view: {}, public: {}, blueprint: {}'.format(c_id,def_view,public,blueprint))
         print('   created: {}, starts: {}'.format(created,start))
-        print('   role(s): {}'.format(enrollment))
+        print('   {} students, role: {}'.format(num_students,enrollment))
         return
 
     @staticmethod
@@ -1269,7 +1277,7 @@ class Course():
     @staticmethod
     def display_courses(args):
         course = Course(args.host, None, verbose=args.verbose)
-        courses = course.fetch_courses()
+        courses = course.fetch_courses(student_count=True,concluded=True)
         if not courses:
             print('No courses found')
             return True
