@@ -625,7 +625,6 @@ def HR_submit_day_time(timestamp):
 ######################################################################
 
 def HR_late_penalty(due_day, submit_day, submit_hour):
-    print(due_day,submit_day)
     if not due_day or submit_day <= due_day:
         return 0.0
     late = (submit_day - due_day) * 0.1
