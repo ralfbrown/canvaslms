@@ -625,6 +625,7 @@ def HR_submit_day_time(timestamp):
 ######################################################################
 
 def HR_late_penalty(due_day, submit_day, submit_hour):
+    print(due_day,submit_day)
     if not due_day or submit_day <= due_day:
         return 0.0
     late = (submit_day - due_day) * 0.1
@@ -674,11 +675,12 @@ if have_HR:
         # reshuffle the scores so that we have one list per student, containing the scores from all parts
         scores = collect_scores(raw_scores)
         grades = {}
+        today = Course.day_of_year()
         for user in scores:
             uid = course.get_student_id(user)
             if uid is None:
                 continue
-            if course.due_day > 366 and None in scores[user]:
+            if course.due_day >= today and None in scores[user]:
                 # not yet due and there are missing parts, so skip
                 if args.verbose:
                     print('skipping',user,'because parts missing')
@@ -758,12 +760,14 @@ def autoprocess_score(args,spec):
     if type(spec) != list:
         spec = [spec]
     orig_points = args.points
+    today = datetime.date.today()
+    year = today.year
     for inclass in spec:
         fields = inclass.split(':')
         if len(fields) < 4:
             fields.append((4-len(fields))*[''])
         dt, hr_id, assign_name, msg = fields
-        args.due_day = Course.day_of_year(int('2020'+dt))
+        args.due_day = Course.day_of_year(int(str(year)+dt))
         args.points = orig_points
         if '/' in hr_id:
             hr_id, points = hr_id.split('/')
