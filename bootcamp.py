@@ -677,7 +677,6 @@ if have_HR:
         for user in scores:
             uid = course.get_student_id(user)
             if uid is None:
-                #uid = TEST_STUDENT ##DEBUG
                 continue
             if course.due_day > 366 and None in scores[user]:
                 # not yet due and there are missing parts, so skip
