@@ -1230,10 +1230,13 @@ class Course():
         return
 
     @staticmethod
-    def day_of_year(normdate):
+    def day_of_year(normdate = None):
         '''
         extract the day number within a year (1-366) from the normalized YYYYMMDD date integer
         '''
+        if normdate is None:
+            today = datetime.date.today()
+            normdate = int('{}{:02}{:02}'.format(today.year,today.month,today.day))
         if type(normdate) is not int or normdate < 20170101 or normdate > 20991231:
             return 0
         month = (normdate // 100) % 100
