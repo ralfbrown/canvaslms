@@ -680,6 +680,8 @@ if have_HR:
                 continue
             if course.due_day > 366 and None in scores[user]:
                 # not yet due and there are missing parts, so skip
+                if args.verbose:
+                    print('skipping',user,'because parts missing')
                 continue
             total = 0.0
             numparts = len(scores[user])
@@ -708,7 +710,6 @@ if have_HR:
                 print(msg)
             else:
                 print('{}: {}'.format(user,total))
-        ##FIXME: upload to Canvas
         course.batch_upload_grades(grades)
         return True
 
@@ -756,11 +757,19 @@ def autoprocess_invite(args,spec):
 def autoprocess_score(args,spec):
     if type(spec) != list:
         spec = [spec]
+    orig_points = args.points
     for inclass in spec:
         fields = inclass.split(':')
         if len(fields) < 4:
             fields.append((4-len(fields))*[''])
         dt, hr_id, assign_name, msg = fields
+        args.points = orig_points
+        if '/' in hr_id:
+            hr_id, points = hr_id.split('/')
+            try:
+                args.points = int(points)
+            except:
+                args.points = 100
         args.copyscores = hr_id
         args.assignment = assign_name
         course = setup_course(args)
