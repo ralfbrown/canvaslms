@@ -763,6 +763,7 @@ def autoprocess_score(args,spec):
         if len(fields) < 4:
             fields.append((4-len(fields))*[''])
         dt, hr_id, assign_name, msg = fields
+        args.due_day = Course.day_of_year(int('2020'+dt))
         args.points = orig_points
         if '/' in hr_id:
             hr_id, points = hr_id.split('/')
