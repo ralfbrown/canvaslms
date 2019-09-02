@@ -789,11 +789,11 @@ def autoprocess(args, remargs):
         print('Please install hackerrank.py to use this feature')
         return False
     today = datetime.date.today()
+    hour = datetime.datetime.now().hour
     ## send out invites for, or score, in-class exercises
     try:
         with open('inclass.txt','r') as f:
             lines = matching_dates(f.read().split('\n'),today)
-            hour = datetime.datetime.now().hour
             if hour < 12:
                 autoprocess_invite(args,lines)
             elif hour >= 13:
@@ -805,14 +805,15 @@ def autoprocess(args, remargs):
         if args.verbose:
             print(' ',err)
     ## send out invites for homework assignments
-    try:
-        with open('homework.txt','r') as f:
-            lines = matching_dates(f.read().split('\n'),today)
-            autoprocess_invite(args,lines)
-    except Exception as err:
-        print('Skipping processing of homework invitations')
-        if args.verbose:
-            print(' ',err)
+    if hour < 12:
+        try:
+            with open('homework.txt','r') as f:
+                lines = matching_dates(f.read().split('\n'),today)
+                autoprocess_invite(args,lines)
+        except Exception as err:
+            print('Skipping processing of homework invitations')
+            if args.verbose:
+                print(' ',err)
     ## copy scores for homework assignments
     try:
         with open('hw-scores.txt','r') as f:
