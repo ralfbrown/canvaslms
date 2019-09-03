@@ -735,7 +735,7 @@ def date_matches(datespec,mindate,maxdate):
     datespec = datespec.split(':')[0]
     date = datetime.date(year=mindate.year,month=int(datespec[0:2]),day=int(datespec[2:4]))
     if maxdate:
-        return date >= mindate and date <= maxdate
+        return date > mindate and date <= maxdate  ## for hoemworks, don't start scoring until after due
     else:
         return date == mindate
 
