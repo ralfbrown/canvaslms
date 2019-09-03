@@ -5,8 +5,10 @@
 
 import csv
 import datetime
+import dateutil.parser
 import math
 import os
+import pytz
 import random
 import re
 import sys
@@ -33,6 +35,8 @@ MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 10839 # uid of the Test Student for the course
 ## People whose comments should be ignored when processing peer reviews.  Use the display_name for each.
 COURSE_STAFF = ['Ralf Brown', 'Jin Cao', 'Shaotong Li', 'Kaiyu Zheng', 'Tony Zhu']
+
+TIMEZONE = pytz.timezone('America/New_York')
 
 ## for very skewed grades, we may want to compute standard deviation separately for grades above and below the mean
 SPLIT_STDDEV = True
@@ -617,10 +621,14 @@ else:
 def HR_submit_day_time(timestamp):
     if not timestamp or 'T' not in timestamp:
         return None, None
-    date, time = timestamp.split('T')
-    day = Course.day_of_year(Course.normalize_date(date))
-    hour = int(time.split(':')[0])
-    return day, hour
+    try:
+        dt = dateutil.parser.parse(timestamp)
+        dt = dt.astimezone(TIMEZONE)
+    except:
+        print('Error parsing',timestamp)
+        quit()
+    day = Course.day_of_year(Course.normalize_date('{}/{}/{}'.format(dt.year,dt.month,dt.day)))
+    return day, dt.hour
 
 ######################################################################
 
