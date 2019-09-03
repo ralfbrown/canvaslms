@@ -735,7 +735,7 @@ def date_matches(datespec,mindate,maxdate):
     datespec = datespec.split(':')[0]
     date = datetime.date(year=mindate.year,month=int(datespec[0:2]),day=int(datespec[2:4]))
     if maxdate:
-        return date >= mindate and date < maxdate  ## for hoemworks, don't start scoring until after due
+        return date >= mindate and date < maxdate  ## for homeworks, don't start scoring until after due
     else:
         return date == mindate
 
@@ -827,7 +827,10 @@ def autoprocess(args, remargs):
         with open('hw-scores.txt','r') as f:
             lastweek = today - datetime.timedelta(days=8)
             lines = matching_dates(f.read().split('\n'),lastweek,today)
-            autoprocess_score(args,lines)
+            if lines:
+                autoprocess_score(args,lines)
+            else:
+                print('No homework assignments due or within late window')
     except Exception as err:
         print('Skipping processing of homework scoring')
         if args.verbose:
