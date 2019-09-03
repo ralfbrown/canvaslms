@@ -585,7 +585,7 @@ if have_HR:
             if type(students) == dict:
                 name = course.student_name(students[st])
             else:
-                name = None
+                name = course.student_name(course.get_id_for_student(st))
             email = st if '@' in st else st + MAIL
             response = hr.invite_test_candidate(test_id,name,email,msg)
             if args.dryrun and not response:
@@ -1130,6 +1130,7 @@ def main():
         course.add_peer_reviewer(args.addreviewer,remargs[0])
     elif args.makeshuffle is True:
         make_shuffle(course,args)
+        return
     elif args.invite:
         HR_invite(course,args)
         return
