@@ -862,6 +862,10 @@ class Course():
             return
         resp = self.put('courses/{}/assignments/{}/submissions/{}'.format(self.id, self.assignment_id, user_id),
                         arglist)
+        if not resp:
+            print('Got null response for courses/{}/assignments/{}/submissions/{}'.format(self.id,self.assignment_id,
+                                                                                          user_id))
+            return
         if 'grade' not in resp:
             raise CanvasException("Expected a response showing the new grade, got:\n{}".format(resp))
         self.clear_submissions_cache()
