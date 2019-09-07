@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 14aug2019
+##  last edit: 07sep2019
 
 import argparse
 import csv
@@ -783,7 +783,7 @@ class Course():
         student_ids = {}
         for student in self.fetch_roster():
             student_ids[student['login_id']] = student['id']
-        for student in self.fetch_drops:
+        for student in self.fetch_drops():
             student_ids[student['login_id']] = -student['id']
         return student_ids
 
@@ -1075,13 +1075,22 @@ class Course():
         return
 
     @staticmethod
-    def check_rubric_complete(rubric):
+    def check_rubric_complete(rubric, rubric_def):
         for crit in rubric:
             if 'points' not in crit:
                 ## allow a blank comment-only entry
                 if 'description' in crit and 'comment' in crit['description']:
                     continue
-                return False
+                ## if we were given the rubric definition, check whether this is a zero-point criterion
+                id = crit['id']
+                possible = -1
+                if rubric_def:
+                    for c in rubric_def.criteria:
+                        if c.crit_id == id:
+                            possible = float(c.points_possible)
+                            break
+                if possible != 0:
+                    return False
         return True
 
     @staticmethod
@@ -1098,7 +1107,7 @@ class Course():
             if total_points == 0:
                 email = course.student_login(uid)
                 print('! {} ({}) received a zero score'.format(email,uid))
-            incomplete = require_complete and not Course.check_rubric_complete(data)
+            incomplete = require_complete and not Course.check_rubric_complete(data,rubric_def)
             if incomplete:
                 print('! Incomplete rubric by {} for {}'.format(course.student_login(reviewer),course.student_login(uid)))
                 submit_grades[reviewer] = Grade(submit_points/2,"Incomplete rubric")
