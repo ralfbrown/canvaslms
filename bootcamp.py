@@ -152,6 +152,8 @@ def parse_hackerrank(course, csv, grades, partnum, verbose=False):
 ######################################################################
 
 def extract_andrew_from_filename(filename,what='feedback'):
+    if '/' in filename:
+        filename = filename.split('/')[-1]
     return filename.rsplit('_{}'.format(what),-1)[0]
     
 ######################################################################
@@ -160,6 +162,29 @@ def normalize_q_value(val):
     if val is None or val == '' or val[0] == 'n':
         return 'na'
     return val
+
+######################################################################
+
+def validate_shuffle_assessment(course,csv_filename):
+    with open(csv_filename,"r") as f:
+        csvfile = CanvasCSV(f)
+        # read header line
+        try:
+            row = csvfile.next_row()
+        except Exception as e:
+            print('Invalid data in file',csv_filename)
+            return False
+        interviewer = extract_andrew_from_filename(csv_filename,'assessment')
+        # skip second header line
+        csvfile.next_row()
+        # read interviewee AndrewID
+        row = csvfile.next_row()
+        andrew = email_to_AndrewID(row[1])
+        if andrew is None or andrew == '' or interviewer == andrew:
+            return None
+        if course.get_id_for_student(andrew) is not None:
+            return interviewer
+    return None
 
 ######################################################################
 
@@ -484,6 +509,10 @@ def process_shuffle_csv(course, flags):
     submissions = course.fetch_assignment_submissions(submit_assign_id)
     spreadsheets = []
     submit_grades = {}
+    have_spreadsheet = {}
+    validated = {}
+    have_photo = {}
+    # start by downloading all of the attachments
     for sub in submissions:
         if sub['workflow_state'] != 'submitted':
             continue
@@ -493,7 +522,6 @@ def process_shuffle_csv(course, flags):
         login = course.student_login(uid)
         attachments = sub['attachments']
         spreadsheet_url = None
-        photo_url = None
         filename = None
         suffix = None
         for attach in attachments:
@@ -505,7 +533,7 @@ def process_shuffle_csv(course, flags):
                 filename = attach['filename']
                 (base, period, suffix) = filename.rpartition('.')
             if 'image' in mimetype:
-                photo_url = attach['url']
+                have_photo[uid] = True
         if spreadsheet_url:
             destfile = '{}/{}_{}.{}'.format(flags.dir,login,what,suffix)
             print('Downloading',what,'by',login)
@@ -515,26 +543,45 @@ def process_shuffle_csv(course, flags):
                 print(err)
             else:
                 spreadsheets += [destfile]
+                have_spreadsheet[uid] = True
                 if flags.verbose:
                     print(spreadsheet_url,'->',destfile)
-            uid = course.get_id_for_student(login)
-            if uid is not None and uid > 0:
-                gr = Grade()
-                points = SHUFFLE_SUBMISSION_POINTS
-                ## dock student for missing photo upload
-                if photo_url is None and what == 'assessment':
-                    gr.add(0,'-10 points for not uploading a photo',1)
-                    points -= 10
-                    print('-',login,'did not upload interview photo')
-                gr.add(points,'',0,course.late_penalty_by_days(late_days))
-                submit_grades[uid] = gr
         else:
             print('-',login,'did not upload',what,'spreadsheet')
+    # convert spreadsheets to CSV and validate
+    csv_files = CanvasCSV.convert_files_to_csv(spreadsheets,flags.dir)
+    for filename in csv_files:
+        interviewer = validate_shuffle_assessment(course,filename)
+        if interviewer:
+            validated[interviewer] = True
+    # now build up the grades
+    for sub in submissions:
+        if sub['workflow_state'] != 'submitted':
+            continue
+        uid = sub['user_id']
+        login = course.student_login(uid)
+        late_seconds = sub['seconds_late']
+        late_days = (late_seconds + 86100) // 86400
+        if uid in have_spreadsheet:
+            uid = course.get_id_for_student(login)
+            gr = Grade()
+            points = SHUFFLE_SUBMISSION_POINTS
+            ## dock student for incorrect interviewee AndrewID
+            if login not in validated:
+                gr.add(0,'unknown/missing interviewee AndrewID -- please reupload',1)
+                points = 0
+                print('-',login,'had invalid/missing interviewee AndrewID')
+            ## dock student for missing photo upload
+            elif uid not in have_photo and what == 'assessment':
+                gr.add(0,'-10 points for not uploading a photo',1)
+                points -= 10
+                print('-',login,'did not upload interview photo')
+            gr.add(points,'',0,course.late_penalty_by_days(late_days))
+            submit_grades[uid] = gr
     print('')
     print('Uploading grades for submitting',what)
     course.batch_upload_grades(submit_grades,1,submit_assign_id)
     print('')
-    csv_files = CanvasCSV.convert_files_to_csv(spreadsheets,flags.dir)
     process_grades(course,flags,csv_files)
     return
 
