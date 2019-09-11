@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 07sep2019
+##  last edit: 11sep2019
 
 import argparse
 import csv
@@ -871,12 +871,31 @@ class Course():
         self.clear_submissions_cache()
         return
 
+    def await_batch_completion(self, resp):
+        url = resp['url']
+        while url and resp['workflow_state'] in  ['queued','running']:
+            sleep(1)
+            print('.',end='',flush=True)
+            resp = self.get(resp['url'])
+            if type(resp) is list:
+                resp = resp[0]
+            if 'workflow_state' in resp and resp['workflow_state'] == 'completed':
+                break
+            if 'url' not in resp:
+                break
+            url = resp['url']
+        status = resp['workflow_state']
+        print('')
+        print('status =',status)
+        return status
+
     def batch_upload_grades(self, grades, numparts = 1, assign_id = None):
         '''
         upload grades and associated comments for a set of students.  If 'numparts' is zero, upload only comments.
-        'grades' is a map from Canvas uids to any of: Grade() instance, int/float score, or list of (score,message)
+        'grades' is a map from Canvas uids to any of: Grade() instance, int/float score, or list of [score,message]
         '''
         arglist = []
+        comments = []
         prev_grades = self.fetch_assignment_grades(assign_id)
         emails = None
         student_ids = self.fetch_active_students()
@@ -918,8 +937,9 @@ class Course():
             if numparts > 0 and grade is not None:
                 arglist += [('grade_data[{}][posted_grade]'.format(uid),grade)]
             if feedback and feedback != '':
-                arglist += [('grade_data[{}][text_comment]'.format(uid),feedback),
+                comments += [('grade_data[{}][text_comment]'.format(uid),feedback),
                             ('grade_data[{}][group_comment]'.format(uid),True)]
+        arglist += comments
         if arglist == []:
             print('No grades to upload\n')
             return
@@ -937,22 +957,8 @@ class Course():
             resp = [{'url': None, 'workflow_state':'skipped'}]
         if type(resp) is not list or 'url' not in resp[0]:
             raise CanvasException("Canvas response looks weird: {}".format(resp))
-        resp = resp[0]
-        url = resp['url']
         print('Waiting for grade upload to be processed',end='',flush=True)
-        while url and resp['workflow_state'] in  ['queued','running']:
-            sleep(1)
-            print('.',end='',flush=True)
-            resp = self.get(resp['url'])
-            if type(resp) is list:
-                resp = resp[0]
-            if 'workflow_state' in resp and resp['workflow_state'] == 'completed':
-                break
-            if 'url' not in resp:
-                break
-            url = resp['url']
-        print('')
-        print('status =',resp['workflow_state'])
+        self.await_batch_completion(resp[0])
         self.clear_submissions_cache()
         return
 
