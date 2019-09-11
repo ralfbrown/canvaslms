@@ -68,6 +68,7 @@ def add_bootcamp_flags(parser):
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
     parser.add_argument("--reassign",action="store_true",help="assign a new interviewee to an interviewer")
+    parser.add_argument("--force",action="store_true",help="force grade upload even if student has already been graded")
     parser.add_argument("-Q","--questions",metavar="FILE",help="load list of shuffle questions from FILE")
     parser.add_argument("--students",metavar="FILE",help="use list of students in FILE instead of current roster for --makeshuffle")
     parser.add_argument("--addreviewer")
@@ -514,13 +515,13 @@ def process_shuffle_csv(course, flags):
     have_photo = {}
     # start by downloading all of the attachments
     for sub in submissions:
-        if sub['workflow_state'] != 'submitted':
+        if sub['workflow_state'] != 'submitted' and (not flags.force or sub['workflow_state'] != 'graded'):
             continue
         uid = sub['user_id']
         late_seconds = sub['seconds_late']
         late_days = (late_seconds + 86100) // 86400
         login = course.student_login(uid)
-        attachments = sub['attachments']
+        attachments = sub['attachments'] if 'attachments' in sub else []
         spreadsheet_url = None
         filename = None
         suffix = None
@@ -556,7 +557,7 @@ def process_shuffle_csv(course, flags):
             validated[interviewer] = True
     # now build up the grades
     for sub in submissions:
-        if sub['workflow_state'] != 'submitted':
+        if sub['workflow_state'] != 'submitted' and (not flags.force or sub['workflow_state'] != 'graded'):
             continue
         uid = sub['user_id']
         login = course.student_login(uid)
