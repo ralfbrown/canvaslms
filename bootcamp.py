@@ -1111,7 +1111,10 @@ def main():
         course = Course(args.host, args.course, verbose = args.verbose)
         course.mail_address(MAIL)
         if 'targetmean' in args and args.targetmean:
-            course.target_mean = args.targetmean
+            try:
+                course.target_mean = int(args.targetmean)
+            except:
+                course.target_mean = None
         else:
             course.target_mean = 88
         if course.target_mean == 85:
