@@ -889,6 +889,25 @@ class Course():
         print('status =',status)
         return status
 
+    def grade_upload(self, url, args, what):
+        if args == []:
+            print('No',what,'to upload')
+            return
+        try:
+            resp = self.post(url,args)
+            if self.dryrun:
+                return
+            if self.verbose:
+                print('upload command sent')
+        except HTTPError as err:
+            print('{}: {} for {}'.format(what,err,url))
+            resp = [{'url': None, 'workflow_state':'skipped'}]
+        if type(resp) is not list or 'url' not in resp[0]:
+            raise CanvasException("Canvas response looks weird: {}".format(resp))
+        print('Waiting for',what,'upload to be processed',end='',flush=True)
+        self.await_batch_completion(resp[0])
+        return
+
     def batch_upload_grades(self, grades, numparts = 1, assign_id = None):
         '''
         upload grades and associated comments for a set of students.  If 'numparts' is zero, upload only comments.
@@ -939,26 +958,11 @@ class Course():
             if feedback and feedback != '':
                 comments += [('grade_data[{}][text_comment]'.format(uid),feedback),
                             ('grade_data[{}][group_comment]'.format(uid),True)]
-        arglist += comments
-        if arglist == []:
-            print('No grades to upload\n')
-            return
         if assign_id is None:
             assign_id = self.assignment_id
         url = 'courses/{}/assignments/{}/submissions/update_grades'.format(self.id,assign_id)
-        try:
-            resp = self.post(url,arglist)
-            if self.dryrun:
-                return
-            if self.verbose:
-                print('upload command sent')
-        except HTTPError as err:
-            print(err,'for',url)
-            resp = [{'url': None, 'workflow_state':'skipped'}]
-        if type(resp) is not list or 'url' not in resp[0]:
-            raise CanvasException("Canvas response looks weird: {}".format(resp))
-        print('Waiting for grade upload to be processed',end='',flush=True)
-        self.await_batch_completion(resp[0])
+        self.grade_upload(url,comments,'comments')
+        self.grade_upload(url,arglist,'scores')
         self.clear_submissions_cache()
         return
 
