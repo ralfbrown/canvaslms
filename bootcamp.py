@@ -66,6 +66,7 @@ def add_bootcamp_flags(parser):
     parser.add_argument("-S","--shuffle",metavar="NAME",help="use assignment NAME as source of grades for shuffle assessment")
     parser.add_argument("-F","--feedback",metavar="NAME",help="use assignment NAME as source of grades for shuffle feedback")
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
+    parser.add_argument("--targetmean",default=None,metavar="N",help="set target mean for --makecurve to N%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
     parser.add_argument("--reassign",action="store_true",help="assign a new interviewee to an interviewer")
     parser.add_argument("--force",action="store_true",help="force grade upload even if student has already been graded")
@@ -1109,36 +1110,44 @@ def main():
     if args.makecurve is True:
         course = Course(args.host, args.course, verbose = args.verbose)
         course.mail_address(MAIL)
-        # course.target_mean = 85
-        # standard = [('A+',2.4,99.5),('A',1.8,99),('A-',1.0,98),
-        #             ('B+',0.4,97),('B',-0.2,96),('B-',-1.0,95),
-        #             ('C+',-1.6,94),('C',-2.2,93),('C-',-3.0,92),
-        #             ('D+',-3.6,90),('D',-4.2,88),('D-',-4.8,86)]
-        # pass_dev = -2.0
-        # course.target_mean = 86
-        # standard = [('A+',2.2,99.5),('A',1.6,99),('A-',0.8,98),
-        #             ('B+',0.2,97),('B',-0.4,96),('B-',-1.2,95),
-        #             ('C+',-1.8,94),('C',-2.4,93),('C-',-3.2,92),
-        #             ('D+',-3.8,90),('D',-4.4,88),('D-',-5.0,86)]
-        # pass_dev = -2.2
-        # course.target_mean = 87
-        # standard = [('A+',2.0,99.5),('A',1.4,99),('A-',0.6,98),
-        #             ('B+',0.0,97),('B',-0.6,96),('B-',-1.4,95),
-        #             ('C+',-2.0,94),('C',-2.6,93),('C-',-3.4,92),
-        #             ('D+',-4.0,90),('D',-4.6,88),('D-',-5.2,86)]
-        # pass_dev = -2.4
-        course.target_mean = 88
-        standard = [('A+',1.8,99.5),('A',1.2,99),('A-',0.4,98),
-                    ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
-                    ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
-                    ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
-        pass_dev = -2.6
-        # course.target_mean = 89
-        # standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
-        #             ('B+',-0.4,97),('B',-1.0,96),('B-',-1.8,95),
-        #             ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
-        #             ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
-        # pass_dev = -2.8
+        if 'targetmean' in args and args.targetmean:
+            course.target_mean = args.targetmean
+        else:
+            course.target_mean = 88
+        if course.target_mean == 85:
+            standard = [('A+',2.4,99.5),('A',1.8,99),('A-',1.0,98),
+                        ('B+',0.4,97),('B',-0.2,96),('B-',-1.0,95),
+                        ('C+',-1.6,94),('C',-2.2,93),('C-',-3.0,92),
+                        ('D+',-3.6,90),('D',-4.2,88),('D-',-4.8,86)]
+            pass_dev = -2.0
+        elif course.target_mean == 86:
+            standard = [('A+',2.2,99.5),('A',1.6,99),('A-',0.8,98),
+                        ('B+',0.2,97),('B',-0.4,96),('B-',-1.2,95),
+                        ('C+',-1.8,94),('C',-2.4,93),('C-',-3.2,92),
+                        ('D+',-3.8,90),('D',-4.4,88),('D-',-5.0,86)]
+            pass_dev = -2.2
+        elif course.target_mean == 87:
+            standard = [('A+',2.0,99.5),('A',1.4,99),('A-',0.6,98),
+                        ('B+',0.0,97),('B',-0.6,96),('B-',-1.4,95),
+                        ('C+',-2.0,94),('C',-2.6,93),('C-',-3.4,92),
+                        ('D+',-4.0,90),('D',-4.6,88),('D-',-5.2,86)]
+            pass_dev = -2.4
+        elif course.target_mean == 88:
+            standard = [('A+',1.8,99.5),('A',1.2,99),('A-',0.4,98),
+                        ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
+                        ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
+                        ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
+            standard = [('A+',1.8,98),('A',1.2,96),('A-',0.4,94),
+                        ('B+',-0.2,91),('B',-0.8,88),('B-',-1.6,86),
+                        ('C+',-2.2,84),('C',-2.8,83),('C-',-3.6,82),
+                        ('D+',-4.2,80),('D',-4.8,78),('D-',-5.4,76)]
+            pass_dev = -2.6
+        elif course.target_mean == 89:
+            standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
+                        ('B+',-0.4,97),('B',-1.0,96),('B-',-1.8,95),
+                        ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
+                        ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
+            pass_dev = -2.8
         print("Target mean:",course.target_mean)
         course.make_curve(standard,SPLIT_STDDEV,args.verbose,args.dryrun,pass_dev)
         return
