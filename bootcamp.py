@@ -1148,6 +1148,10 @@ def main():
                         ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
                         ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
             pass_dev = -2.8
+        else:
+            course.target_mean = 85
+            standard = None # use make_curve's default
+            pass_dev = None
         print("Target mean:",course.target_mean)
         course.make_curve(standard,SPLIT_STDDEV,args.verbose,args.dryrun,pass_dev)
         return
