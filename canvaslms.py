@@ -1168,17 +1168,14 @@ class Course():
         arglist = [('include[]','assessments')]
         arglist = [('include[]','submission_comments')]
         submissions = self.fetch_assignment_submissions(review_assign_id,arglist)
-        #if self.verbose:
-        #    print('============ SUBMISSIONS ============')
-        #    print(submissions)
-        #    print('============ END SUBMISSIONS ============')
         rubric_grades = {}	# map from uid to score earned from rubric
         submit_grades = {}	# map from uid to score for submitting peer_review
         assessors = {}		# map from submission_id to uid for assessor
         if rubric_info is not None and 'assessments' in rubric_info:
             ## collect assessors and scores off of peer reviews
             if self.verbose:
-                assessors = { a['artifact_id'] : (a['assessor_id'], a['score']) for a in rubric_info['assessments'] }
+                assessors = { a['artifact_id'] : (self.student_name(a['assessor_id']), a['score'])
+                              for a in rubric_info['assessments'] }
                 print('ASSESSORS:',assessors)
             assessors = { a['artifact_id'] : (a['assessor_id'], Course.clamp(a['score'],points_possible),
                                               a['data'] if 'data' in a else None) \
@@ -1579,6 +1576,15 @@ class Course():
         return True
 
     @staticmethod
+    def copy_rubric_score(args, assignment):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        course.find_assignment(assignment)
+        if course.assignment_id is None:
+            return True
+        course.confirm_peer_review_scores(course.assignment_id, require_complete=True)
+        return True
+
+    @staticmethod
     def display_student_summaries(args):
         course = Course(args.host, args.course, verbose=args.verbose)
         summaries = course.get('courses/{}/analytics/student_summaries'.format(course.id))
@@ -1670,6 +1676,8 @@ class Course():
             return Course.display_roster(args)
         if args.showrubric is True:
             return Course.display_rubric_def(args, args.assignment)
+        if args.copyrubricscore is True:
+            return Course.copy_rubric_score(args, args.assignment)
         if args.todo is True:
             return Course.display_todo(args)
         if args.ungraded is True:
@@ -1711,6 +1719,7 @@ class Course():
         parser.add_argument("--listreviews",action="store_true",help="display list of peer reviews for the assignment")
         parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
         parser.add_argument("--showrubric",action="store_true",help="show the rubric definition for the assignment")
+        parser.add_argument("--copyrubricscore",action="store_true",help="copy peer-review rubric score to assignment score")
         parser.add_argument("--listcourses",action="store_true",help="list all of your courses")
         parser.add_argument("--activity",action="store_true",help="show daily activity for the course")
         parser.add_argument("--analytics",action="store_true",help="show assignment analytics for the course")
