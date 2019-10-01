@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 11jun2019
+##  last edit: 20sep2019
 
 import csv
 import datetime
@@ -32,7 +32,7 @@ except ImportError:
 COURSE_NAME = "Coding Boot Camp"
 HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
-TEST_STUDENT = 10839 # uid of the Test Student for the course
+TEST_STUDENT = 57945 # uid of the Test Student for the course
 ## People whose comments should be ignored when processing peer reviews.  Use the display_name for each.
 COURSE_STAFF = ['Ralf Brown', 'Jin Cao', 'Shaotong Li', 'Kaiyu Zheng', 'Tony Zhu']
 
@@ -706,8 +706,8 @@ def collect_scores(raw):
             andrew = sc['andrew'] if sc['andrew'] != '' else None
             user = email_to_AndrewID(email,andrew)
             s = scores[user] if user in scores else []
-            for _ in range(len(s),which-1):
-                s = s.append(None)
+            for _ in range(len(s),which):
+                s.append(None)
             s.append((sc['score'],sc['questions'],HR_submit_day_time(sc['endtime'])))
             scores[user] = s
         which += 1
@@ -715,7 +715,7 @@ def collect_scores(raw):
     for email in scores:
         s = scores[email]
         for _ in range(len(s),which):
-            s = s.append(None)
+            s.append(None)
     return scores
 
 ######################################################################
@@ -1140,10 +1140,10 @@ def main():
                         ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
                         ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
                         ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
-            standard = [('A+',1.8,98),('A',1.2,96),('A-',0.4,94),
-                        ('B+',-0.2,91),('B',-0.8,88),('B-',-1.6,86),
-                        ('C+',-2.2,84),('C',-2.8,83),('C-',-3.6,82),
-                        ('D+',-4.2,80),('D',-4.8,78),('D-',-5.4,76)]
+#            standard = [('A+',1.8,98),('A',1.2,96),('A-',0.4,94),
+#                        ('B+',-0.2,91),('B',-0.8,88),('B-',-1.6,86),
+#                        ('C+',-2.2,84),('C',-2.8,83),('C-',-3.6,82),
+#                        ('D+',-4.2,80),('D',-4.8,78),('D-',-5.4,76)]
             pass_dev = -2.6
         elif course.target_mean == 89:
             standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
