@@ -55,6 +55,9 @@ INCOMPLETE_RUBRIC_PENALTY = 0.50
 ## 20% penalty for not submitting a photo along with the interviewee assessment
 NO_PHOTO_PENALTY = 0.20
 
+## should HackerRank assignment links be posted as assignment comments?
+POST_LINK = False
+
 ######################################################################
 
 def add_bootcamp_flags(parser):
@@ -647,7 +650,7 @@ if have_HR:
                     uid = students[st]
                 else:
                     uid = course.get_id_for_student(email)
-                if uid and type(uid) == int and uid > 0:
+                if uid and type(uid) == int and uid > 0 and POST_LINK:
                     ## upload a comment with the test link
                     link_info = 'The link for this assignment is\n{}\n(see the email for full instructions)' \
                                 .format(response['test_link'])
@@ -727,7 +730,7 @@ if have_HR:
         raw_scores = []
         for t_id in t_ids:
             print('Fetching scores for test',t_id)
-            raw_scores.append(hr.get_all_test_scores(t_id))
+            raw_scores.append(hr.get_all_test_scores(t_id,all_questions=(len(t_ids) != 1)))
         # reshuffle the scores so that we have one list per student, containing the scores from all parts
         scores = collect_scores(raw_scores)
         grades = {}
