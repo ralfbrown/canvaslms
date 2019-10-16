@@ -956,8 +956,7 @@ class Course():
             if numparts > 0 and grade is not None:
                 arglist += [('grade_data[{}][posted_grade]'.format(uid),grade)]
             if feedback and feedback != '':
-                comments += [('grade_data[{}][text_comment]'.format(uid),feedback),
-                            ('grade_data[{}][group_comment]'.format(uid),True)]
+                comments += [('grade_data[{}][text_comment]'.format(uid),feedback)]
         if assign_id is None:
             assign_id = self.assignment_id
         url = 'courses/{}/assignments/{}/submissions/update_grades'.format(self.id,assign_id)
