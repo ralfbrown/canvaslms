@@ -433,7 +433,7 @@ def process_shuffle_assessment(submissions, rubric_def, rubric_grades, submit_gr
         for crit in criteria:
             if require_complete:
                 if 'points' not in crit or 'criterion_id' not in crit:
-                    if not incomplete:
+                    if not incomplete and rubric_def.criterion_points(crit['criterion_id']) > 0:
                         pts = pts - (INCOMPLETE_RUBRIC_PENALTY * submit_points)
                         remarks += ('Incomplete rubric (-{})'
                     		    .format(Grade.drop_decimals(INCOMPLETE_RUBRIC_PENALTY*submit_points)))

@@ -121,6 +121,12 @@ class RubricDefinition():
                 return crit.name
         return None
 
+    def criterion_points(self, id):
+        for c in self.criteria:
+            if c.crit_id == id:
+                return float(c.points_possible)
+        return -1
+
     def display(self):
         print('{} ({} pts)'.format(self.title,Grade.drop_decimals(self.points_possible)))
         for crit in self.criteria:
@@ -1091,14 +1097,7 @@ class Course():
                 if 'description' in crit and 'comment' in crit['description']:
                     continue
                 ## if we were given the rubric definition, check whether this is a zero-point criterion
-                id = crit['id']
-                possible = -1
-                if rubric_def:
-                    for c in rubric_def.criteria:
-                        if c.crit_id == id:
-                            possible = float(c.points_possible)
-                            break
-                if possible != 0:
+                if not rubric_def or rubric_def.criterion_points(crit['criterion_id']) > 0:
                     return False
         return True
 
