@@ -685,6 +685,12 @@ class Course():
     def fetch_grading_standards(self):
         return self.get('courses/{}/grading_standards'.format(self.id),[],True)
 
+    def fetch_groups(self):
+        return self.get('courses/{}/groups'.format(self.id),[],True)
+
+    def fetch_group_members(self, group):
+        return self.get('groups/{}/users'.format(group),[],True)
+
     def fetch_incomplete(self, student_ids = None):
         '''
         returns a list of student ids for which the comment text indicates one or more parts of the assignment are
@@ -1455,6 +1461,36 @@ class Course():
         return True
 
     @staticmethod
+    def display_groups(args):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        groups = course.fetch_groups()
+        for grp in groups:
+            members = grp['members_count'] if 'members_count' in grp else 0
+            max_members = grp['max_membership'] if 'max_membership' in grp else None
+            if max_members is None:
+                max_members = 'Unlimited'
+            description = grp['description'] if 'description' in grp else None
+            if description is None:
+                description = '(no description)'
+            joinlevel = grp['join_level'] if 'join_level' in grp else None
+            if joinlevel is None:
+                joinlevel = 'invitation_only'
+            created = grp['created_at'] if 'created_at' in grp else 'unspecified'
+            print('ID:{} {}\n\tsize:{} of {} public:{} join:{} created:{}\n\t{}'
+                  .format(grp['id'],grp['name'],members,max_members,grp['is_public'],joinlevel,created,description))
+        return True
+
+    @staticmethod
+    def display_group_members(args, group):
+        course = Course(args.host, args.course, verbose=args.verbose)
+        members = course.fetch_group_members(group)
+        for mem in members:
+            print(mem['login_id'])
+        if not members:
+            print('(no members)')
+        return True
+
+    @staticmethod
     def display_my_name(args):
         course = Course(args.host, args.course)
         print(course.whoami())
@@ -1646,6 +1682,8 @@ class Course():
             return Course.display_graded(args, args.assignment)
         if args.gradestats is True:
             return Course.display_grade_stats(args)
+        if args.groupmembers is True:
+            return Course.display_group_members(args, remargs[0])
         if args.listassignments is True:
             return Course.display_assignments(args, args.assignment)
         if args.listcourses is True:
@@ -1654,6 +1692,8 @@ class Course():
             return Course.display_grading_standards(args)
         if args.listgrades is True:
             return Course.display_grades(args.host, args.course, args.assignment,args.verbose)
+        if args.listgroups is True:
+            return Course.display_groups(args)
         if args.listreviews is True:
             return Course.display_reviews(args, args.assignment)
         if args.activity is True:
@@ -1710,9 +1750,11 @@ class Course():
         parser.add_argument("-u","--uid",metavar="UID",help="the student's SIS ID number")
         parser.add_argument("--graded",action="store_true",help="display list of studentIDs for which there is a grade in the assignment")
         parser.add_argument("--gradestats",action="store_true",help="show class average grades")
+        parser.add_argument("--groupmembers",action="store_true",help="list members of specified student group")
         parser.add_argument("--listassignments",action="store_true",help="display list of assignments for course")
         parser.add_argument("--listcurves",action="store_true",help="show available grading standards for course")
         parser.add_argument("--listgrades",action="store_true",help="show student grades for the specified assignment (NYI)")
+        parser.add_argument("--listgroups",action="store_true",help="display list of student groups for course")
         parser.add_argument("--listrubrics",action="store_true",help="display list of IDs for active rubrics")
         parser.add_argument("--listreviews",action="store_true",help="display list of peer reviews for the assignment")
         parser.add_argument("--liststudents",action="store_true",help="display list of students by email and Canvas userID")
