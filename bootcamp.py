@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 20sep2019
+##  last edit: 25aug2020
 
 import csv
 import datetime
@@ -28,13 +28,12 @@ except ImportError:
 ######################################################################
 
 ## configuration
-#COURSE_NAME = "Coding & Algorithms Bootcamp"	#from Fall 2017
 COURSE_NAME = "Coding Boot Camp"
 HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 57945 # uid of the Test Student for the course
 ## People whose comments should be ignored when processing peer reviews.  Use the display_name for each.
-COURSE_STAFF = ['Ralf Brown', 'Jin Cao', 'Shaotong Li', 'Kaiyu Zheng', 'Tony Zhu']
+COURSE_STAFF = []
 
 TIMEZONE = pytz.timezone('America/New_York')
 
@@ -66,6 +65,7 @@ def add_bootcamp_flags(parser):
     '''
     parser.add_argument("-I","--inclass",action="store_true",help="interpret CSV file as an in-class exercise")
     parser.add_argument("-H","--homework",action="store_true",help="interpret CSV file as a homework assignment")
+    parser.add_argument("-E","--exam",action="store_true",help="treat assignment as an exam, use actual points as grade")
     parser.add_argument("-S","--shuffle",metavar="NAME",help="use assignment NAME as source of grades for shuffle assessment")
     parser.add_argument("-F","--feedback",metavar="NAME",help="use assignment NAME as source of grades for shuffle feedback")
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
@@ -388,7 +388,7 @@ def process_grades(course, flags, csv_files):
             if flags.inclass:
                 print('processing',csv_file)
                 parse_hackerrank(course,csvfile,grades,-1,flags.verbose)
-            elif flags.homework:
+            elif flags.homework or flags.exam:
                 print('processing',csv_file)
                 parse_hackerrank(course,csvfile,grades,i,flags.verbose)
             elif flags.shuffle:
@@ -1139,20 +1139,24 @@ def main():
                         ('D+',-4.0,90),('D',-4.6,88),('D-',-5.2,86)]
             pass_dev = -2.4
         elif course.target_mean == 88:
-            standard = [('A+',1.8,99.5),('A',1.2,99),('A-',0.4,98),
-                        ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
-                        ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
-                        ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
-#            standard = [('A+',1.8,98),('A',1.2,96),('A-',0.4,94),
-#                        ('B+',-0.2,91),('B',-0.8,88),('B-',-1.6,86),
-#                        ('C+',-2.2,84),('C',-2.8,83),('C-',-3.6,82),
-#                        ('D+',-4.2,80),('D',-4.8,78),('D-',-5.4,76)]
+#            standard = [('A+',1.8,99.5),('A',1.2,99),('A-',0.4,98),
+#                        ('B+',-0.2,97),('B',-0.8,96),('B-',-1.6,95),
+#                        ('C+',-2.2,94),('C',-2.8,93),('C-',-3.6,92),
+#                        ('D+',-4.2,90),('D',-4.8,88),('D-',-5.4,86)]
+            standard = [('A+',1.8,99),('A',1.2,98),('A-',0.4,96),
+                        ('B+',-0.2,93),('B',-0.8,84),('B-',-1.6,80),
+                        ('C+',-2.2,77),('C',-2.8,74),('C-',-3.6,70),
+                        ('D+',-4.2,67),('D',-4.8,64),('D-',-5.4,60)]
             pass_dev = -2.6
         elif course.target_mean == 89:
+#            standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
+#                        ('B+',-0.4,97),('B',-1.0,96),('B-',-1.8,95),
+#                        ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
+#                        ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
             standard = [('A+',1.6,99.5),('A',1.0,99),('A-',0.2,98),
-                        ('B+',-0.4,97),('B',-1.0,96),('B-',-1.8,95),
-                        ('C+',-2.4,94),('C',-3.0,93),('C-',-3.8,92),
-                        ('D+',-4.4,90),('D',-5.0,88),('D-',-5.6,86)]
+                        ('B+',-0.4,93),('B',-1.0,84),('B-',-1.8,80),
+                        ('C+',-2.4,77),('C',-3.0,74),('C-',-3.8,70),
+                        ('D+',-4.4,67),('D',-5.0,64),('D-',-5.6,60)]
             pass_dev = -2.8
         elif course.target_mean == 90:
             standard = [('A+',1.4,99.5),('A',0.8,99),('A-',0.0,98),
@@ -1179,7 +1183,7 @@ def main():
         return
 
     if remargs and not args.inclass and not args.homework and not args.shuffle and not args.feedback \
-           and not args.zeromissing and not args.makeshuffle \
+           and not args.exam and not args.zeromissing and not args.makeshuffle \
            and not args.addreviewer \
            and not autodetect(args,remargs[0]):
         print('Unable to auto-detect assignment type.  You must specify a type: -I, -H, -S, or -F')
@@ -1192,7 +1196,7 @@ def main():
             args.points = SHUFFLE_FEEDBACK_POINTS
         else:
             args.points = 100
-    if args.shuffle or args.feedback:
+    if args.shuffle or args.feedback or args.exam:
         args.use_raw_points = True
 
     course = setup_course(args)
