@@ -1485,7 +1485,7 @@ class Course():
         course = Course(args.host, args.course, verbose=args.verbose)
         members = course.fetch_group_members(group)
         for mem in members:
-            print(mem['login_id'])
+            print(mem['id'],'\t',mem['login_id'])
         if not members:
             print('(no members)')
         return True
