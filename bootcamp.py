@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 25aug2020
+##  last edit: 12sep2020
 
 import csv
 import datetime
@@ -13,6 +13,7 @@ import random
 import re
 import sys
 import urllib, urllib.request
+from itertools import chain
 from urllib.error import HTTPError
 from statistics import mean  # requires Python 3.4+
 
@@ -71,6 +72,8 @@ def add_bootcamp_flags(parser):
     parser.add_argument("--makecurve",action="store_true",help="compute curve for mean of 85%% and stdev of 5%%")
     parser.add_argument("--targetmean",default=None,metavar="N",help="set target mean for --makecurve to N%%")
     parser.add_argument("--makeshuffle",action="store_true",help="create interview shuffle among the enrolled students")
+    parser.add_argument("--shufflegroups",metavar="GRPLIST",help="split shuffle to match only within comma-separated GRPLIST")
+    parser.add_argument("--prevshuffles",metavar="FILE",help="avoid assigning a matching present in FILE from prior shuffles")
     parser.add_argument("--reassign",action="store_true",help="assign a new interviewee to an interviewer")
     parser.add_argument("--force",action="store_true",help="force grade upload even if student has already been graded")
     parser.add_argument("-Q","--questions",metavar="FILE",help="load list of shuffle questions from FILE")
@@ -891,6 +894,33 @@ def autoprocess(args, remargs):
 
 ######################################################################
 
+def split_interviewers_into_groups(course, interviewers, grouplist, student_ids):
+    grouplist = grouplist.split(',')
+    grouped = []
+    for group in grouplist:
+        members = course.fetch_group_members(group)
+        if members:
+            members = [m['login_id'] for m in members if m['login_id'] in student_ids]
+            grouped += [members]
+    return grouped
+
+######################################################################
+
+def add_ungrouped(groups, student_ids):
+    longest = groups[0]
+    all_grouped = set()
+    for g in groups:
+        if len(g) > len(longest):
+            longest = g
+        for stu in g:
+            all_grouped.add(stu)
+    for stu in student_ids:
+        if stu not in all_grouped:
+            longest.append(stu)
+    return groups
+
+######################################################################
+
 def make_interview(interviewers, i, questions):
     if i+1 < len(interviewers):
         interviewee = interviewers[i+1]
@@ -914,7 +944,77 @@ def make_interview(interviewers, i, questions):
 
 ######################################################################
 
-def assign_interviews(interviewers, questions):
+def swap_partners(interviewers, idx1, idx2):
+    tmp = interviewers[idx1]
+    interviewers[idx1] = interviewers[idx2]
+    interviewers[idx2] = tmp
+#    print('swapped',interviewers[idx1],'and',interviewers[idx2]) ##DEBUG
+    return
+
+######################################################################
+
+def is_repeat_interview(interviewers, partner1, partner2, prev_matches, exact = False):
+    partner1 = interviewers[partner1]
+    partner2 = interviewers[partner2]
+    return ((partner1, partner2) in prev_matches) or (not exact and (partner2, partner1) in prev_matches)
+
+######################################################################
+
+def have_repeat_interviewer(interviewers, prev_matches):
+    l = len(interviewers)
+    for i in range(l):
+        if is_repeat_interview(interviewers,i,(i+1)%l,prev_matches):
+            return True
+    return False
+
+######################################################################
+
+def repeated_partners(interviewers, partner1, partner2, partner3, prev_matches, exact = False):
+    partner1 = interviewers[partner1]
+    partner2 = interviewers[partner2]
+    partner3 = interviewers[partner3]
+    if ((partner1, partner2) in prev_matches) or ((partner2, partner3) in prev_matches):
+        return True
+    if exact:
+        return False
+    return ((partner2, partner1) in prev_matches) or ((partner3, partner2) in prev_matches)
+
+######################################################################
+
+def remove_repeat_interviewers(interviewers, prev_matches):
+    l = len(interviewers)
+    if prev_matches and l > 4:
+        #print('remove_repeat_interviewers',interviewers) ##DEBUG
+        for _ in range(8):
+            if not have_repeat_interviewer(interviewers, prev_matches):
+                return
+            random.shuffle(interviewers)
+        ## first pass: eliminate repeats, avoiding swapping with any repeats
+        for i in chain(range(l),range(l)):
+            cur = (i+1) % l
+            if is_repeat_interview(interviewers,i,cur,prev_matches):
+                for j in range(2,l-2):
+                    alt = (i+j) % l
+                    if (not repeated_partners(interviewers,(alt-1)%l,cur,(alt+1)%l,prev_matches,False) and
+                        not repeated_partners(interviewers,i,alt,(i+2)%l,prev_matches,False)):
+                        swap_partners(interviewers,cur,alt)
+                        break
+        ## second pass(es): try to eliminate remaining exact repeats, avoiding swapping with exact repeats
+        for i in chain(range(l),range(l),range(l)):
+            cur = (i+1) % l
+            if is_repeat_interview(interviewers,i,cur,prev_matches,True):
+                for j in range(2,l-2):
+                    alt = (i+j) % l
+                    if (not repeated_partners(interviewers,(alt-1)%l,cur,(alt+1)%l,prev_matches,True) and
+                        not repeated_partners(interviewers,i,alt,(i+2)%l,prev_matches,True)):
+                        swap_partners(interviewers,cur,alt)
+                        break
+    #print(interviewers) ##DEBUG
+    return
+
+######################################################################
+
+def assign_interviews(interviewers, questions, prev_matches):
     # split() generates empty element when file ends with a newline, so strip off those empty elements
     #   from the interviewers and questions lists if present
     num_i = len(interviewers)
@@ -925,6 +1025,7 @@ def assign_interviews(interviewers, questions):
         questions = questions[0:num_q-1]
 
     random.shuffle(interviewers)
+    remove_repeat_interviewers(interviewers, prev_matches)
     interviews = {}
     i = 0
     for interviewer in interviewers:
@@ -934,30 +1035,9 @@ def assign_interviews(interviewers, questions):
     
 ######################################################################
 
-def make_shuffle(course,flags):
-    if not flags.feedback:
-        print('You must specify the feedback assignment with --feedback')
-        return
-    feedback_assign_id = course.find_assignment_id(flags.feedback)
-    if feedback_assign_id is None:
-        print('The requested feedback assignment was not found')
-        return
-    questions = flags.questions
-    if questions is None:
-        questions = 'problems.txt'
-    with open(questions) as f:
-        q = f.read().split('\n')
-    students = flags.students
-    if students is None:
-        student_ids = course.fetch_active_students()
-        interviewers = [email_to_AndrewID(login) for login in student_ids]
-    else:
-        if students == '.' or students == '=':
-            students = 'students.txt'
-        with open(students) as f:
-            interviewers = f.read().split('\n')
+def make_shuffle_group(course, flags, interviewers, q, feedback_assign_id, prev_matches):
 
-    interviews = assign_interviews(interviewers,q)
+    interviews = assign_interviews(interviewers,q,prev_matches)
 
     # create output directory
     directory = flags.dir
@@ -1015,6 +1095,58 @@ def make_shuffle(course,flags):
     # upload a comment for each student informing them of their interviewer and providing the link to the peer review
     course.batch_upload_grades(feedback_links,0,feedback_assign_id)
 
+    return
+
+######################################################################
+
+def load_prev_matches(prevshuffles):
+    prev_matches = set()
+    if prevshuffles:
+        try:
+            with open(prevshuffles,'r') as prev:
+                for line in prev:
+                    if ' -> ' not in line:
+                        continue
+                    er, _, rest = line.partition(' -> ')
+                    ee, _, __ = rest.partition(' ')
+                    prev_matches.add((er,ee))
+        except:
+            print('Unable to open',prevshuffles,'to read prior-shuffle matches')
+    return prev_matches
+
+######################################################################
+
+def make_shuffle(course,flags):
+    if not flags.feedback:
+        print('You must specify the feedback assignment with --feedback')
+        return
+    feedback_assign_id = course.find_assignment_id(flags.feedback)
+    if feedback_assign_id is None:
+        print('The requested feedback assignment was not found')
+        return
+    questions = flags.questions
+    if questions is None:
+        questions = 'problems.txt'
+    with open(questions) as f:
+        q = f.read().split('\n')
+    prev_matches = load_prev_matches(flags.prevshuffles)
+    students = flags.students
+    if students is None:
+        student_ids = course.fetch_active_students()
+        interviewers = [email_to_AndrewID(login) for login in student_ids]
+        if flags.shufflegroups:
+            groups = split_interviewers_into_groups(course, interviewers, flags.shufflegroups, student_ids)
+            groups = add_ungrouped(groups, student_ids)
+            for group in groups:
+                interviewers = [email_to_AndrewID(login) for login in group]
+                make_shuffle_group(course, flags, interviewers, q, feedback_assign_id, prev_matches)
+            return
+    else:
+        if students == '.' or students == '=':
+            students = 'students.txt'
+        with open(students) as f:
+            interviewers = f.read().split('\n')
+    make_shuffle_group(course, flags, interviewers, q, feedback_assign_id, prev_matches)
     return
 
 ######################################################################
