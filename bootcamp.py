@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 12sep2020
+##  last edit: 15sep2020
 
 import csv
 import datetime
@@ -305,6 +305,7 @@ def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
 ######################################################################
 
 def email_to_AndrewID(login, default_id=None):
+    login = login.lower()
     if MAIL in login:
         login, m, rest = login.rpartition(MAIL)
     if '@' in login and default_id:
@@ -690,12 +691,12 @@ def HR_submit_day_time(timestamp):
 def HR_late_penalty(due_day, submit_day, submit_hour):
     if not due_day or submit_day <= due_day:
         return 0.0
-    late = (submit_day - due_day) * 0.1
+    late = (submit_day - due_day) * LATE_PERCENTAGE
     if submit_hour == 0:
-        late -= 0.05 # only 5% penalty instead of 10% if submitted before 1am
-    if late > 0.7:   # no submissions accepted more than 7 days late
-        late = 1.0
-    return late
+        late -= (LATE_PERCENTAGE/2)            # only 5% penalty instead of 10% if submitted before 1am
+    if late > (LATE_DAYS * LATE_PERCENTAGE):   # no submissions accepted more than 7 days late
+        late = 100
+    return late / 100
     
 ######################################################################
 
