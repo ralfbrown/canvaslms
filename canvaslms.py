@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 11sep2019
+##  last edit: 25oct2025
 
 import argparse
 import csv
@@ -156,7 +156,7 @@ def latest_rubric_entry(submission):
 ######################################################################
 
 class Course():
-    def __init__(self, host, course_name, verbose = False):
+    def __init__(self, host, course_name, verbose = False, course_id = None):
         self.token = None		# the API access token
         self.id = None			# the course ID
         self.name = None		# the course name
@@ -197,18 +197,23 @@ class Course():
             self.id = int(course_name)
         except:
             self.id = None
+        if course_id:
+            self.id = course_id
         start = '0000-00-00'
         # find the most recent iteration of the named course
         for c in courses:
+            if 'concluded' in c and c['concluded']:
+              continue  # skip concluded iterations
             if c['id'] and c['id'] == self.id:
                 self.name = c['name']
-                if 'start_at' in c:
+                if 'start_at' in c and c['start_at']:
                     start = c['start_at']
                 break  # we've found the course with the given ID
-            if 'name' in c and c['name'] == course_name and ('start_at' not in c or c['start_at'] > start):
+            if not self.id and 'name' in c and c['name'] == course_name and \
+               ('start_at' not in c or not c['start_at'] or c['start_at'] > start):
                 self.id = c['id']
                 self.name = c['name']
-                if 'start_at' in c:
+                if 'start_at' in c and c['start_at']:
                     start = c['start_at']
         if course_name and self.id is None:
             print('Requested course '+course_name+' not found.  Goodbye....')
@@ -492,6 +497,7 @@ class Course():
 
     def compute_curve(self, standard, split_stddev = True, pass_devs = None):
         grades = self.fetch_running_grades()
+        grades = list(filter(lambda x: x >= 20, grades))
         if len(grades) == 0:
             print("No grades yet")
             return None
@@ -780,6 +786,8 @@ class Course():
             return None
         return RubricDefinition(assign_info['rubric_settings'],assign_info['rubric'])
 
+    printed = False
+
     def fetch_running_grades(self):
         grades = []
         enrollments = self.fetch_enrollments()
@@ -787,7 +795,9 @@ class Course():
             if 'grades' not in enrollment:
                 continue
             gr = enrollment['grades']
-            if 'current_score' in gr and gr['current_score'] is not None:
+            if 'override_score' in gr and gr['override_score'] is not None:
+                grades += [gr['override_score']]
+            elif 'current_score' in gr and gr['current_score'] is not None:
                 grades += [gr['current_score']]
         return grades
 
@@ -885,10 +895,19 @@ class Course():
 
     def await_batch_completion(self, resp):
         url = resp['url']
+        retries = 0
         while url and resp['workflow_state'] in  ['queued','running']:
             sleep(1)
             print('.',end='',flush=True)
-            resp = self.get(resp['url'])
+            try:
+                resp = self.get(resp['url'])
+            except HTTPError as err:
+                print('{} for {}'.format(err,url))
+                status = str(err)
+                retries += 1
+                if retries > 3:
+                    resp = {}
+                    break
             if type(resp) is list:
                 resp = resp[0]
             if 'workflow_state' in resp and resp['workflow_state'] == 'completed':
@@ -1220,9 +1239,9 @@ class Course():
         arglist = [('title',title)] + scheme
         # send grading scheme to Canvas
         resp = self.post('courses/{}/grading_standards'.format(self.id),arglist)
-        if len(resp) > 0:
+        if resp and len(resp) > 0:
             resp = resp[0]
-        if 'id' not in resp:
+        if resp and 'id' not in resp:
             if not self.dryrun:
                 print('Unrecognized response from Canvas:\n',resp)
             return
@@ -1315,7 +1334,7 @@ class Course():
         public = courseinfo['is_public'] if 'is_public' in courseinfo else 'No'
         blueprint = courseinfo['blueprint'] if 'blueprint' in courseinfo else 'No'
         enrollment = courseinfo['enrollments'] if 'enrollments' in courseinfo else 'None'
-        enrollment = ' '.join([e['type']+'/'+e['enrollment_state'] for e in enrollment])
+        enrollment = ' '.join([e['type']+'/'+e['enrollment_state'] for e in enrollment if type(e) == dict])
         num_students = courseinfo['total_students'] if 'total_students' in courseinfo else 0
         print('{} {}'.format(code,name))
         print('   id: {}, default view: {}, public: {}, blueprint: {}'.format(c_id,def_view,public,blueprint))
@@ -1342,14 +1361,14 @@ class Course():
 
     @staticmethod
     def display_assignments(args, search = None):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         assignments = course.fetch_assignments(search)
         print(assignments)
         return True
 
     @staticmethod
     def display_assignment_analytics(args, search = None):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         assignments = course.get('courses/{}/analytics/assignments'.format(course.id))
         for a in assignments:
             Course.print_assignment_analytics(a)
@@ -1368,7 +1387,7 @@ class Course():
 
     @staticmethod
     def display_course_activity(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         activity = course.get('courses/{}/analytics/activity'.format(course.id))
         activity = sorted(activity,key=lambda x: x['date'])
         print('Date\t\tViews\tParticipations')
@@ -1378,7 +1397,7 @@ class Course():
 
     @staticmethod
     def display_course_permissions(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         perm = course.get('courses/{}/permissions'.format(course.id))
         if type(perm) is type([]):
             perm = perm[0]
@@ -1388,7 +1407,7 @@ class Course():
 
     @staticmethod
     def display_course_settings(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         settings = course.get('courses/{}/settings'.format(course.id))
         if type(settings) is type([]):
             settings = settings[0]
@@ -1401,7 +1420,7 @@ class Course():
         if len(arglist) % 2 != 0:
             print('must have matched parameter/value pairs')
             return
-        course = Course(args.host, args.course)
+        course = Course(args.host, args.course, course_id=args.id)
         params = list(zip(arglist[0::2],arglist[1::2]))
         results = course.get(endpoint,params,True)
         print(results)
@@ -1409,7 +1428,7 @@ class Course():
 
     @staticmethod
     def display_grade_stats(args):
-        course = Course(args.host, args.course,verbose=args.verbose)
+        course = Course(args.host, args.course,verbose=args.verbose, course_id=args.id)
         grades = course.fetch_running_grades()
         grades.sort()
         if len(grades) > 0:
@@ -1425,7 +1444,7 @@ class Course():
 
     @staticmethod
     def display_graded(args, assignment):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         graded = course.fetch_graded()
         emails = [email for (uid,email) in graded.items()]
@@ -1435,7 +1454,7 @@ class Course():
 
     @staticmethod
     def display_grades(args, assignment):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         ## FIXME
         print("Not yet implemented")
@@ -1443,7 +1462,7 @@ class Course():
 
     @staticmethod
     def display_grading_standards(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         standards = course.fetch_grading_standards()
         active_standard = course.active_grading_standard_id()
         for standard in standards:
@@ -1462,7 +1481,7 @@ class Course():
 
     @staticmethod
     def display_groups(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         groups = course.fetch_groups()
         for grp in groups:
             members = grp['members_count'] if 'members_count' in grp else 0
@@ -1482,7 +1501,7 @@ class Course():
 
     @staticmethod
     def display_group_members(args, group):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         members = course.fetch_group_members(group)
         for mem in members:
             print(mem['id'],'\t',mem['login_id'])
@@ -1492,7 +1511,7 @@ class Course():
 
     @staticmethod
     def display_my_name(args):
-        course = Course(args.host, args.course)
+        course = Course(args.host, args.course, course_id=args.id)
         print(course.whoami())
         return True
 
@@ -1501,7 +1520,7 @@ class Course():
         if len(arglist) % 2 != 0:
             print('must have matched parameter/value pairs')
             return True
-        course = Course(args.host, args.course)
+        course = Course(args.host, args.course, course_id=args.id)
         course.simulate(args.dryrun)
         params = list(zip(arglist[0::2],arglist[1::2]))
         results = course.delete(endpoint,params)
@@ -1513,7 +1532,7 @@ class Course():
         if len(arglist) % 2 != 0:
             print('must have matched parameter/value pairs')
             return True
-        course = Course(args.host, args.course)
+        course = Course(args.host, args.course, course_id=args.id)
         course.simulate(args.dryrun)
         params = list(zip(arglist[0::2],arglist[1::2]))
         results = course.post(endpoint,params)
@@ -1525,7 +1544,7 @@ class Course():
         if len(arglist) % 2 != 0:
             print('must have matched parameter/value pairs')
             return True
-        course = Course(args.host, args.course)
+        course = Course(args.host, args.course, course_id=args.id)
         course.simulate(args.dryrun)
         params = list(zip(arglist[0::2],arglist[1::2]))
         results = course.put(endpoint,params)
@@ -1537,7 +1556,7 @@ class Course():
         if assignment is None:
             print('You must specify an assignment name with -a')
             return True
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         if course.assignment_id is None:
             return True
@@ -1555,7 +1574,7 @@ class Course():
 
     @staticmethod
     def display_roster(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         if args.liststudents:
             header = 'UserID,Name,Email'
         else:
@@ -1584,21 +1603,21 @@ class Course():
 
     @staticmethod
     def display_rubric_ids(host, course_name, verbose = False):
-        course = Course(host, course_name, verbose=verbose)
+        course = Course(host, course_name, verbose=verbose, course_id=args.id)
         rubrics = course.fetch_rubrics()
         print(rubrics)
         return
 
     @staticmethod
     def display_rubric(host, course_name, id, verbose = False):
-        course = Course(host, course_name,verbose=verbose)
+        course = Course(host, course_name,verbose=verbose, course_id=args.id)
         rubric = course.fetch_rubric(id, which='peer_assessments')
         print(rubric)
         return
 
     @staticmethod
     def display_rubric_def(args, assignment):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         if course.assignment_id is None:
             return True
@@ -1611,7 +1630,7 @@ class Course():
 
     @staticmethod
     def copy_rubric_score(args, assignment):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         if course.assignment_id is None:
             return True
@@ -1620,7 +1639,7 @@ class Course():
 
     @staticmethod
     def display_student_summaries(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         summaries = course.get('courses/{}/analytics/student_summaries'.format(course.id))
         for s in summaries:
             course.print_student_summary(s)
@@ -1628,7 +1647,7 @@ class Course():
     
     @staticmethod
     def display_todo(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         todo = course.fetch_todo()
         for item in todo:
             action = item['type']
@@ -1649,7 +1668,7 @@ class Course():
 
     @staticmethod
     def display_ungraded(args, assignment):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         course.find_assignment(assignment)
         ungraded = course.fetch_ungraded()
         emails = [email for (uid,email) in ungraded.items()]
@@ -1662,7 +1681,7 @@ class Course():
 
     @staticmethod
     def display_upcoming(args):
-        course = Course(args.host, args.course, verbose=args.verbose)
+        course = Course(args.host, args.course, verbose=args.verbose, course_id=args.id)
         upcoming = course.fetch_upcoming()
         for item in upcoming:
             title = item['title']
@@ -1675,7 +1694,16 @@ class Course():
         return True
 
     @staticmethod
-    def process_generic_commands(args, remargs):
+    def process_generic_commands(args, remargs, course_id=None):
+        if 'id' not in args or not args.id:
+            try:
+                global COURSE_ID
+                if course_id:
+                    args.id = course_id
+                else:
+                    args.id = COURSE_ID
+            except:
+                args.id = None
         if args.get is True:
             return Course.display_get(args, remargs[0],remargs[1:])
         if args.graded is True:
@@ -1725,7 +1753,7 @@ class Course():
         if args.whoami is True:
             return Course.display_my_name(args)
         if args.zeromissing is True:
-            course = Course(args.host, args.course)
+            course = Course(args.host, args.course, course_id=args.id)
             course.simulate(args.dryrun)
             course.find_assignment(args.assignment)
             if course.assignment_id is not None:
@@ -1869,6 +1897,8 @@ class CanvasCSV():
         '''
         Remove non-ASCII characters from a CSV file using 'iconv'
         '''
+        if not os.path.isfile(filename):
+            return
         inp = filename
         out = filename + '.txt'
         with open(inp,'r') as infile:

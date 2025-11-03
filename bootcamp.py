@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 ##  by Ralf Brown, Carnegie Mellon University
-##  last edit: 15sep2020
+##  last edit: 26aug2025
 
 import csv
 import datetime
@@ -30,6 +30,7 @@ except ImportError:
 
 ## configuration
 COURSE_NAME = "Coding Boot Camp"
+COURSE_ID = 47190
 HOST = "canvas.cmu.edu"
 MAIL = "@andrew.cmu.edu"
 TEST_STUDENT = 57945 # uid of the Test Student for the course
@@ -89,7 +90,7 @@ def add_bootcamp_flags(parser):
 ######################################################################
 
 def setup_course(args):
-    course = Course(HOST, COURSE_NAME, verbose=args.verbose)
+    course = Course(HOST, COURSE_NAME, verbose=args.verbose, course_id=COURSE_ID)
     course.simulate(args.dryrun)
     course.mail_address(MAIL)
     course.use_raw_points(args.use_raw_points)
@@ -174,6 +175,8 @@ def normalize_q_value(val):
 ######################################################################
 
 def validate_shuffle_assessment(course,csv_filename):
+    if not os.path.isfile(csv_filename):
+        return None
     with open(csv_filename,"r") as f:
         csvfile = CanvasCSV(f)
         # read header line
@@ -187,6 +190,8 @@ def validate_shuffle_assessment(course,csv_filename):
         csvfile.next_row()
         # read interviewee AndrewID
         row = csvfile.next_row()
+        if not row:
+            return None
         andrew = email_to_AndrewID(row[1])
         if andrew is None or andrew == '' or interviewer == andrew:
             return None
@@ -199,6 +204,9 @@ def validate_shuffle_assessment(course,csv_filename):
 def parse_shuffle_assessment(course,csv,filename,grades,verbose = False):
     # read header line
     row = csv.next_row()
+    if not row:
+        print('** empty header row in CSV')
+        return
     interviewer = extract_andrew_from_filename(filename,'assessment')
     if "Feedback" in row[0]:
         print('*',interviewer,"submitted an Interviewer Feedback")
@@ -715,7 +723,8 @@ def collect_scores(raw):
             s = scores[user] if user in scores else []
             for _ in range(len(s),which):
                 s.append(None)
-            s.append((sc['score'],sc['questions'],HR_submit_day_time(sc['endtime'])))
+            overallscore = sc['score']
+            s.append((overallscore,sc['questions'],HR_submit_day_time(sc['endtime'])))
             scores[user] = s
         which += 1
     # ensure that any students who missed the last part get a null
@@ -759,16 +768,15 @@ if have_HR:
                     msg += '\n'
                 else:
                     late = HR_late_penalty(course.due_day,sc[2][0],sc[2][1])
-                    total += hr.late_score(sc[0],late)
+                    total += float(hr.late_score(sc[0],late))
                     msg += hr.feedback(sc[1],late)
                     msg += '\n'
             if numparts > 1:
                 overall = args.points
                 if not overall or int(overall) <= 0:
                     overall = 100
-                if total == int(total):
-                    total = int(total)
-                msg += 'Sum:\t{}/{} points'.format(total,overall)
+                tot = int(total) if total == int(total) else total
+                msg += 'Sum:\t{}/{} points'.format(tot,overall)
             grades[uid] = (total, msg)
             if args.verbose:
                 print('{} ({})'.format(user,uid))
@@ -1159,7 +1167,7 @@ def reassign(flags, remargs):
     if not remargs:
         print('No reassignments specified')
         return
-    course = Course(HOST, COURSE_NAME, verbose=flags.verbose)
+    course = Course(HOST, COURSE_NAME, verbose=flags.verbose, course_id=COURSE_ID)
     course.simulate(flags.dryrun)
     course.mail_address(MAIL)
     # get the assignment IDs for the interviewee assessment and interviewer feedback
@@ -1232,7 +1240,7 @@ def reassign(flags, remargs):
 def main():
     args, remargs = Course.parse_arguments(HOST, COURSE_NAME,
                                            [Institution.add_institution_flags, add_bootcamp_flags])
-    if Course.process_generic_commands(args, remargs):
+    if Course.process_generic_commands(args, remargs, course_id=COURSE_ID):
         return
     if Institution.process_generic_commands(args, remargs):
         return
@@ -1244,7 +1252,7 @@ def main():
             Course.display_rubric_ids(args.host, args.course, args.verbose)
         return
     if args.makecurve is True:
-        course = Course(args.host, args.course, verbose = args.verbose)
+        course = Course(args.host, args.course, verbose = args.verbose, course_id=COURSE_ID)
         course.mail_address(MAIL)
         if 'targetmean' in args and args.targetmean:
             try:
@@ -1292,9 +1300,9 @@ def main():
                         ('D+',-4.4,67),('D',-5.0,64),('D-',-5.6,60)]
             pass_dev = -2.8
         elif course.target_mean == 90:
-            standard = [('A+',1.4,99.5),('A',0.8,99),('A-',0.0,98),
-                        ('B+',-0.6,97),('B',-1.2,96),('B-',-2.0,95),
-                        ('C+',-2.6,94),('C',-3.2,93),('C-',-4.0,92),
+            standard = [('A+',1.4,99),('A',0.8,96),('A-',0.0,92),
+                        ('B+',-0.6,88),('B',-1.2,84),('B-',-2.0,80),
+                        ('C+',-2.6,77),('C',-3.2,74),('C-',-4.0,70),
                         ('D+',-4.6,90),('D',-5.2,88),('D-',-5.8,86)]
             pass_dev = -3.0
         else:
