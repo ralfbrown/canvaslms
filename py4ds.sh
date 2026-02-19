@@ -11,4 +11,4 @@ fi
 week=$1
 [ -n "$2" ] && verbose="-v"
 
-echo python py4ds.py $dryrun $verbose -a "Week $week | Assignment" --week $week -H grades.csv
+python py4ds.py $dryrun $verbose -a "Week $week | Assignment" --week $week -H grades.csv
